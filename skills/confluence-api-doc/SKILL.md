@@ -190,16 +190,42 @@ Before conversion, strip from each endpoint file:
 
 ### Conversion Rules
 
+**CRITICAL — Processing order matters. Follow these phases strictly:**
+
+#### Phase 1: Extract code blocks FIRST (before any other conversion)
+
+Scan the entire Markdown content for fenced code blocks (` ``` ` pairs). For each block:
+
+1. Capture the language identifier (e.g., `json`, `bash`, `yaml`)
+2. Capture ALL lines between the opening and closing ` ``` ` **verbatim** — do NOT apply any HTML conversion to these lines
+3. Replace the entire block (including fences) with the Confluence code macro:
+
+```xml
+<ac:structured-macro ac:name="code">
+  <ac:parameter ac:name="language">LANG</ac:parameter>
+  <ac:plain-text-body><![CDATA[...entire code content verbatim...]]></ac:plain-text-body>
+</ac:structured-macro>
+```
+
+**Rules for code blocks:**
+- Content inside `<![CDATA[...]]>` must be the raw text — **never** wrap lines in `<p>`, `<br/>`, or any HTML tags
+- Preserve original indentation and newlines exactly as-is
+- Language mapping: `sh` → `bash`, `js` → `javascript`; all others use their name directly
+- Code blocks without a language identifier: omit the `<ac:parameter>` line
+
+#### Phase 2: Convert remaining Markdown (non-code-block content only)
+
 | Markdown | Confluence Storage |
 |---|---|
-| ` ```lang\ncode\n``` ` | `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">lang</ac:parameter><ac:plain-text-body><![CDATA[code]]></ac:plain-text-body></ac:structured-macro>` |
 | `**bold**` | `<strong>bold</strong>` |
 | `*italic*` | `<em>italic</em>` |
 | `[text](url)` | `<a href="url">text</a>` |
 | `## Heading` | `<h2>Heading</h2>` |
 | `\| col \| col \|` table | `<table><tbody><tr><td>...</td></tr></tbody></table>` |
-
-For `js`, `javascript`, `sh`, `bash`, `json`, `yaml` code blocks, map to the Confluence language name accordingly (`bash` for `sh`, `javascript` for `js`).
+| Plain text paragraphs (separated by blank lines) | `<p>text</p>` |
+| `- item` / `* item` unordered list | `<ul><li>item</li></ul>` |
+| `1. item` ordered list | `<ol><li>item</li></ol>` |
+| `` `inline code` `` | `<code>inline code</code>` |
 
 ## Step 7: Sync Pages (Create + Update) via REST API
 
