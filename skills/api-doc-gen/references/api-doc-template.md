@@ -123,8 +123,8 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 | ------------ | ---------------------- | ------ | --------- | ------------------------ | -------------------- |
 | `id`         | UUID of created record | String | M         | `"uuid-v4"`              |                      |
 | `status`     | Current status         | String | M         | `"active"`               | "active", "inactive" |
-| `created_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00Z"` |                      |
-| `updated_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00Z"` |                      |
+| `created_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
+| `updated_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
 
 ## Response Example
 
@@ -132,8 +132,8 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 {
   "id": "uuid-v4",
   "status": "active",
-  "created_at": "2024-01-01T10:00:00Z",
-  "updated_at": "2024-01-01T10:00:00Z"
+  "created_at": "2024-01-01T10:00:00+07:00",
+  "updated_at": "2024-01-01T10:00:00+07:00"
 }
 ```
 
@@ -166,7 +166,7 @@ One step per distinct action in the usecase — read the usecase method and list
 | ----------- | -------------------------------------------------------------------------------------------------------- |
 | Mandatory   | Use `M` for required fields, `O` for optional                                                            |
 | Type values | `String`, `Number`, `Boolean`, `Array`, `Object`                                                         |
-| Timestamps  | Always ISO 8601 format: `"2024-01-01T10:00:00Z"`                                                         |
+| Timestamps  | Always ISO 8601 with Asia/Bangkok timezone (+07:00): `"2024-01-01T10:00:00+07:00"`                                                         |
 | UUIDs       | Use `"uuid-v4"` or `"uuid-<noun>"` as example values (e.g., `"uuid-consent-1"`)                          |
 | Nested obj  | Use `Array` or `Object` type + `See <Name> Object below` in Remark column, then add a separate sub-table |
 | Enum values | List allowed values in Remark (e.g., `"active"`, `"inactive"`, `"revoked"`)                              |
