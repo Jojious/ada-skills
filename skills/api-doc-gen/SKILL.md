@@ -107,16 +107,59 @@ For each discovered route, trace from handler → usecase → repository to extr
 
    **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge.
 
-   **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and count steps using these concrete rules:
-   - Each function/method call to a repo, service, or external system = 1 step
-   - Each `if`/`switch` that checks a business rule (not mere error propagation) = 1 step
-   - Each side effect (notification, event publish, cache invalidation, audit log) = 1 step
-   - Final `return` of the success result is NOT a separate step
+   **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and classify each line:
 
-   Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps. Include validation rules, conditional branches, and what happens on success.
+   **Count as 1 step:**
+   - Repository/store method call (`u.repo.Xxx(...)`, `u.store.Xxx(...)`)
+   - Other usecase/service method call (`u.otherUsecase.Xxx(...)`, `u.service.Xxx(...)`)
+   - External system call (notification send, event publish, message queue, HTTP client)
+   - Business rule `if`/`switch` that returns a **sentinel error** (`ErrXxx`) — the condition check itself is the step
+   - Side effect that changes external state: audit log write, cache invalidate/set
+
+   **Do NOT count as a step:**
+   - Error propagation: `if err != nil { return ..., err }` or `if err != nil { return ..., fmt.Errorf(...) }`
+   - Standard library: `time.Now()`, `uuid.New()`, `json.Marshal`, `strconv.Atoi`
+   - Struct construction, variable assignment, type conversion
+   - Internal utility with no I/O: mapper, converter, formatter
+   - Observability: `log.Info(...)`, `log.Error(...)`, `metrics.Increment(...)`
+   - Context enrichment: `ctx = context.WithValue(...)`
+   - Final `return` of success result
+
+   Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps.
+
+   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Step Classification Examples for concrete code examples.
 5. **Error responses** — mapped HTTP status codes from error handling
 
 Track which group each endpoint belongs to — this determines its file placement in Step 3.
+
+#### Deterministic Text Rules
+
+Free-text fields must follow these formulas to produce consistent output across runs.
+
+**Endpoint description** (`# <Name>` subtitle):
+- Pattern: `<Verb> <resource>[ by/for <qualifier>]`
+- Verb from HTTP method: POST→Create, GET(single)→Retrieve, GET(list)→List, PUT→Update, PATCH→Partially update, DELETE→Delete
+- No articles (a/an/the). Max 10 words. Must start with verb.
+- Examples: "Create consent", "Retrieve consent by ID", "List channels"
+
+**Endpoint display name** (`# <Name>` heading):
+- PascalCase → space-separated: `AcceptConsent` → `Accept Consent`
+- No articles, no extra words. Exact PascalCase split only.
+
+**Field description column**:
+- ID field → `Unique identifier of the <entity>` | FK `*_id` → `Reference to <entity>` | Timestamp `*_at` → `Timestamp when <past-tense-action>` | `status` → `Current status` | `name` → `Name of the <entity>` | Boolean → `Whether <condition>` | Other → noun phrase from field name
+- Max 8 words. Factual only.
+
+**Business logic step wording** (Priority 2 only):
+- Start with imperative verb derived from the method/function name
+- Pattern: `<Verb> <object>[ qualifier]`
+- If inline comment exists on/above the code line → use comment text verbatim
+- `u.repo.FindByID(ctx, id)` → "Find consent by ID" | `if purpose.Status != Active` → "Validate purpose is active"
+
+**Index overview paragraph**:
+- Derive from CLAUDE.md or README project description
+- Pattern: `<Service name> provides APIs for <domain>. <One sentence about main capabilities>.`
+- Max 2 sentences.
 
 **Where to find these:**
 - Request/Response structs: `handler/request.go`, `handler/response.go`, or inline in handler files
@@ -136,8 +179,9 @@ The doc must be a 1:1 mirror of the code structs. A missing field or wrong type 
 2. **Follow embedded/composed structs** — if a struct embeds another (`BaseResponse`, `Pagination`, `Timestamps`), read that parent struct too and include all its fields in the doc table.
 3. **Resolve custom types** — if a field uses a custom type (e.g., `ConsentStatus`, `NullString`, `decimal.Decimal`), trace its definition and document the underlying type + allowed values in the Remark column.
 4. **Pointer and omitempty fields** — `*string` or `json:",omitempty"` means the field is optional and can be `null`. Mark as `O` and show `null` in Example when appropriate.
-5. **Nested objects and arrays** — if a field is a struct or slice-of-struct, create a separate sub-table for that object type. The parent table Remark column should say `See <Name> Object below`.
-6. **Cross-check after writing** — after writing the field table, re-read the source struct and compare line by line. Every serializable field (exclude `json:"-"` and unexported fields) must have a matching row in the table.
+5. **Nested objects and arrays** — if a field is a struct or slice-of-struct, create a separate sub-table for that object type. The parent table Remark column should say `See <GoTypeName> Object below`.
+6. **Row ordering** — follow Go struct field order (top to bottom). Embedded struct fields first (expanded in their declaration order), then the struct's own fields. Sub-tables appear immediately after the parent table that references them.
+7. **Cross-check after writing** — after writing the field table, re-read the source struct and compare line by line. Every serializable field (exclude `json:"-"` and unexported fields) must have a matching row in the table.
 
 Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Field Extraction Completeness for detailed patterns on embedded structs, custom types, and edge cases.
 
@@ -145,12 +189,27 @@ Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Field
 
 A partial error table gives false confidence. Use a **usecase-first** approach — the usecase layer is the source of truth for business errors. Then supplement with handler-level errors.
 
-1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct error it can return: named sentinel errors (`ErrNotFound`, `ErrDuplicate`), wrapped errors (`fmt.Errorf(...)`), and errors from repository/external calls. Each one becomes a candidate error response row.
+1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct **sentinel error** it can return (`ErrNotFound`, `ErrDuplicate`, etc.) — these become error response rows. Also note any wrapped errors (`fmt.Errorf(...)`) — these all consolidate into the catch-all 500 row. Do NOT trace into repository/external implementations; the usecase body is the boundary.
 2. **Trace usecase errors to HTTP status** — for each error found in step 1 (across all usecase methods), go back to the handler and find how it maps that error to an HTTP status code (via `errors.Is` switch, error type assertion, or error map). This gives you the Status + Error Message for the doc.
 3. **Handler-level errors** — scan the handler function itself for direct non-2xx returns that happen *before* calling the usecase: bind/parse errors (400), validation errors (422), auth middleware rejections (401/403), path param parsing errors (400).
 4. **Sentinel error discovery** — search for `var Err... = errors.New(...)` in the domain/entity package. Cross-reference with all the usecase methods to confirm which ones this endpoint can actually trigger.
 5. **Default/fallback case** — always include the catch-all error (usually 500 Internal Server Error) that handles unexpected errors.
 6. **Cross-check after writing** — re-read ALL usecase methods AND the handler's error mapping. Count error returns across all usecase methods + direct error returns in the handler → must match the rows in the error table.
+
+**Deterministic Error Enumeration Rules** — follow these rules exactly to ensure consistent output across runs:
+
+| Rule | Description |
+|------|-------------|
+| **One sentinel = one row** | Every distinct sentinel error variable (`ErrXxx`) = exactly 1 row, even if multiple sentinels share the same HTTP status code. Use the error message from `errors.New("...")` as the Error Message column value. |
+| **Wrapped errors stay at surface** | `fmt.Errorf("...: %w", err)` returned by the usecase → do NOT trace into repo/external to find the inner error. Treat it as an unhandled error that falls to the catch-all. Exception: if the usecase explicitly unwraps and re-returns a new sentinel, collect that sentinel instead. |
+| **One catch-all 500 row** | All wrapped/unhandled errors that have no explicit `errors.Is` case in the handler → consolidate into exactly 1 row: `500 | internal server error`. Never expand these into multiple 500 rows. |
+| **Dedup by error variable** | If the handler calls multiple usecase methods that can return the same sentinel (e.g., `ErrNotFound` from 2 different methods), document it as 1 row only. Dedup key = (sentinel variable name + HTTP status code). |
+| **Handler errors are exhaustive** | Always check for ALL of these — not optional: bind/parse error → 400, validation error → 422, path param parse error → 400. If the handler has the pattern, include the row. Do not skip any. |
+
+**Row ordering** — list error rows in this fixed order:
+1. Handler-level errors (400 bind, 400 param parse, 422 validation) — in status code ascending order
+2. Usecase sentinel errors — in the order they appear in the handler's `errors.Is` switch (top to bottom)
+3. Catch-all 500 — always last row
 
 Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Error Tracing Patterns for comprehensive patterns on how errors flow through layers.
 

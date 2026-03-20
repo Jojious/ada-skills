@@ -177,6 +177,88 @@ func (u *ConsentUsecase) Create(...) {
 
 A single-line description without numbered/bulleted items is NOT a step list — fall back to code-derived rules.
 
+## Step Classification Examples
+
+Concrete examples for Priority 2 (code-derived) step counting. Walk through usecase code line by line and classify each:
+
+### Count as 1 step
+
+```go
+func (u *ConsentUsecase) Create(ctx context.Context, req CreateInput) (*Consent, error) {
+    // STEP: repo call
+    purpose, err := u.purposeRepo.FindByID(ctx, req.PurposeID)
+
+    // NOT a step: error propagation (if err != nil + wrapped error)
+    if err != nil {
+        return nil, fmt.Errorf("find purpose: %w", err)
+    }
+
+    // STEP: business rule check (if + sentinel error)
+    if purpose.Status != PurposeStatusActive {
+        return nil, ErrPurposeInactive
+    }
+
+    // STEP: business rule check (if + sentinel error)
+    if purpose.ExpiredAt != nil && purpose.ExpiredAt.Before(time.Now()) {
+        return nil, ErrPurposeExpired
+    }
+
+    // NOT a step: struct construction
+    consent := &Consent{
+        ID:        uuid.New().String(),
+        CitizenID: req.CitizenID,
+        PurposeID: req.PurposeID,
+        Status:    ConsentStatusActive,
+    }
+
+    // STEP: repo call
+    if err := u.repo.Create(ctx, consent); err != nil {
+        return nil, fmt.Errorf("create consent: %w", err)
+    }
+
+    // STEP: side effect (external state change)
+    if err := u.auditLog.Write(ctx, "consent.created", consent.ID); err != nil {
+        return nil, fmt.Errorf("write audit log: %w", err)
+    }
+
+    // STEP: external system call
+    if err := u.notifier.Send(ctx, consent); err != nil {
+        return nil, fmt.Errorf("send notification: %w", err)
+    }
+
+    // NOT a step: logging (observability)
+    log.Info("consent created", "id", consent.ID)
+
+    // NOT a step: metrics (observability)
+    metrics.Increment("consent.created")
+
+    // NOT a step: final return of success result
+    return consent, nil
+}
+```
+
+**Result: 6 steps**
+1. Find purpose by ID
+2. Validate purpose is active
+3. Validate purpose is not expired
+4. Create consent record
+5. Write audit log for consent creation
+6. Send notification
+
+### Do NOT count — summary
+
+| Code pattern | Why not a step |
+|---|---|
+| `if err != nil { return ..., err }` | Error propagation — no business decision |
+| `if err != nil { return ..., fmt.Errorf(...) }` | Error propagation — wrapped |
+| `uuid.New()`, `time.Now()` | Standard library — no I/O |
+| `entity := &Struct{...}` | Struct construction |
+| `mapper.ToResponse(entity)` | Internal utility — no I/O |
+| `log.Info(...)`, `log.Error(...)` | Observability — not business logic |
+| `metrics.Increment(...)` | Observability — not business logic |
+| `ctx = context.WithValue(...)` | Context enrichment — no side effect |
+| `return consent, nil` | Final success return |
+
 ---
 
 ## Extracting Request/Response Structs
@@ -231,7 +313,7 @@ For inline query params, document:
 - Field Name: the string argument (e.g., `"page"`)
 - Type: infer from the extraction method (`QueryInt` → Number, `Query` → String)
 - Default: if provided as second argument (e.g., `c.QueryInt("page", 1)` → Default: `1`)
-- Mandatory: `O` (optional) unless the handler returns an error when the param is missing
+- Mandatory: **`O` by default**. Mark `M` only if handler has explicit error return when param is empty (e.g., `if param == "" { return c.Status(400)... }`). No visible check in handler code → always `O`
 
 ### Response Structs
 
@@ -585,7 +667,7 @@ func (u *ConsentUsecase) Create(ctx context.Context, req CreateConsentInput) (*C
 
 Every `return ..., err` or `return ..., ErrXxx` line = one row in this inventory. Do not skip any.
 
-**If the usecase calls other internal methods**, read those too — they may return additional errors that bubble up.
+**If the usecase calls its own private/helper methods** (e.g., `u.validatePurpose(...)`), read those too — they may return additional sentinel errors that bubble up. However, do NOT follow calls into repository or external service implementations (see Step 4: Error Tracing Boundary).
 
 ### Step 2: Map Usecase Errors to HTTP Status
 
@@ -646,26 +728,15 @@ func (h *Handler) CreateConsent(c *fiber.Ctx) error {
 - `uuid.Parse`, `strconv.Atoi` → 400 param parse error
 - `c.Status(4xx)`, `c.Status(5xx)` → direct error returns
 
-### Step 4: Repository/External Error Context
+### Step 4: Error Tracing Boundary (strict)
 
-If you need more context about what errors a repository can produce (to understand the usecase error inventory better):
+Do **NOT** trace into repository or external service implementations. Only collect errors that the usecase method **explicitly returns** in its own function body. The usecase layer is the boundary.
 
-```go
-func (r *ConsentRepo) FindByID(ctx context.Context, id string) (*Consent, error) {
-    // Not found → returns domain.ErrNotFound
-    if errors.Is(err, gorm.ErrRecordNotFound) {
-        return nil, domain.ErrNotFound
-    }
-    // Duplicate key → returns domain.ErrDuplicate
-    if isDuplicateKeyError(err) {
-        return nil, domain.ErrDuplicate
-    }
-    // Other DB errors → wrapped, bubbles up as 500
-    return nil, fmt.Errorf("find consent: %w", err)
-}
-```
+- Sentinel errors returned by the usecase (e.g., `return nil, ErrNotFound`) → collect as-is
+- Wrapped errors returned by the usecase (e.g., `return nil, fmt.Errorf("create: %w", err)`) → do NOT open the repo to find what `err` is. This is an unhandled error → catch-all 500
+- If the usecase **explicitly checks** a repo error and converts it to a sentinel (e.g., `if errors.Is(err, gorm.ErrRecordNotFound) { return nil, ErrNotFound }`), the sentinel is already visible in the usecase body — collect that sentinel
 
-This helps you understand which sentinel errors the usecase receives from its dependencies.
+**Why this boundary matters:** tracing into repos produces inconsistent results because different runs may follow different call depths. Keeping the boundary at the usecase ensures the same errors are collected every time.
 
 ### Sentinel Error Discovery
 
@@ -733,11 +804,71 @@ app.Use(func(c *fiber.Ctx) error {
 ### Cross-check Procedure
 
 After writing the error table for an endpoint:
-1. Re-read ALL usecase methods — count every error return across all of them (the inventory from Step 1)
-2. Re-read the handler — count handler-level errors (Step 3) + verify mapping for each usecase error (Step 2)
-3. Total error rows in doc = usecase error count + handler-level error count (some may consolidate under the same status, but each distinct error condition should be documented)
-4. Verify the default/catch-all case (500) is included
-5. If a usecase error has no explicit handler mapping, it must still appear as a 500 row with a note
+1. Re-read ALL usecase methods — count every **sentinel** error return across all of them
+2. Re-read the handler — count handler-level errors (Step 3) + verify mapping for each sentinel (Step 2)
+3. Apply Consolidation Rules (below) to get the expected row count
+4. Compare expected rows vs actual rows in the doc table — must match exactly
+5. Verify the catch-all 500 row is present as the last row
+
+### Consolidation Rules
+
+These rules eliminate ambiguity and ensure the same error table is produced every run.
+
+**Rule 1 — One sentinel = one row (never consolidate by status code)**
+
+```go
+// Usecase returns 2 different sentinels, both mapped to 422 in handler:
+case errors.Is(err, domain.ErrPurposeInactive):
+    return c.Status(422).JSON(...)    // → row: 422 | purpose is inactive
+case errors.Is(err, domain.ErrPurposeExpired):
+    return c.Status(422).JSON(...)    // → row: 422 | purpose expired
+```
+→ **2 rows** in the error table, NOT 1 combined "422 | business rule violation" row.
+
+**Rule 2 — Wrapped errors = catch-all 500 (do not trace into repo)**
+
+```go
+// Usecase has 3 wrapped error returns:
+return nil, fmt.Errorf("create consent: %w", err)
+return nil, fmt.Errorf("send notification: %w", err)
+return nil, fmt.Errorf("update cache: %w", err)
+```
+→ **1 row** total: `500 | internal server error`. Do NOT create 3 separate 500 rows.
+
+**Rule 3 — Dedup by sentinel variable name**
+
+```go
+// Handler calls 2 usecase methods that can both return ErrNotFound:
+purpose, err := h.purposeUsecase.GetByID(...)   // can return ErrNotFound
+consent, err := h.consentUsecase.GetByID(...)    // can also return ErrNotFound
+
+// Handler has one case for it:
+case errors.Is(err, domain.ErrNotFound):
+    return c.Status(404).JSON(...)
+```
+→ **1 row**: `404 | not found`. NOT 2 rows for "purpose not found" and "consent not found".
+
+**Rule 4 — Handler errors are an exhaustive checklist**
+
+Always check for ALL of these patterns in the handler. If present, include the row — never skip:
+
+```go
+// Check 1: bind/parse → always 400
+if err := c.BodyParser(&req); err != nil { ... }     // → row: 400 | invalid request body
+
+// Check 2: validation → always 422
+if err := h.validator.Struct(req); err != nil { ... } // → row: 422 | validation failed
+
+// Check 3: param parse → always 400
+id, err := uuid.Parse(c.Params("id")); ...            // → row: 400 | invalid id format
+```
+
+**Rule 5 — Row ordering (fixed)**
+
+List error rows in this order — no deviation:
+1. Handler-level errors (400, 422) — ascending by status code
+2. Usecase sentinel errors — in the order they appear in the handler's `errors.Is` switch (top to bottom)
+3. Catch-all `500 | internal server error` — always last row
 
 ## Scan Strategy
 
