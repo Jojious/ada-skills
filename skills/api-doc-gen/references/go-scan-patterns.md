@@ -127,6 +127,58 @@ r.GET(    r.POST(    r.PUT(    r.PATCH(    r.DELETE(
 - Query params: `c.Query("page")`, `c.DefaultQuery("page", "1")`
 - Body parsing: `c.ShouldBindJSON(&req)`
 
+## Business Logic — Header Comment Detection
+
+Before deriving steps from code, check whether the usecase method already documents its steps in a header comment. This is the preferred source of truth.
+
+### Recognized Patterns
+
+```go
+// Pattern 1: Numbered steps in doc comment
+// Create creates a new consent.
+// Steps:
+// 1. Validate purpose exists and is active
+// 2. Check for duplicate consent
+// 3. Create consent record
+// 4. Send notification
+func (u *ConsentUsecase) Create(ctx context.Context, req CreateConsentInput) (*Consent, error) {
+
+// Pattern 2: Bullet list in doc comment
+// Create creates a new consent.
+// - Validate purpose exists and is active
+// - Check for duplicate consent
+// - Create consent record
+// - Send notification
+func (u *ConsentUsecase) Create(ctx context.Context, req CreateConsentInput) (*Consent, error) {
+
+// Pattern 3: Inline numbered comments (no "Steps:" header)
+// Create creates a new consent.
+// 1. Validate purpose exists and is active
+// 2. Check for duplicate consent
+// 3. Create consent record
+func (u *ConsentUsecase) Create(ctx context.Context, req CreateConsentInput) (*Consent, error) {
+```
+
+### Detection Procedure
+
+1. Read the comment block directly above the `func` signature
+2. Look for lines matching `// \d+\.` (numbered) or `// -` (bulleted) or a `// Steps:` header
+3. If found → use these as business logic steps verbatim (convert bullets to numbered list)
+4. If not found → fall back to code-derived counting rules (see SKILL.md Step 2 item 4)
+
+### What Does NOT Count as Step Comments
+
+```go
+// Create creates a new consent.           ← description only, no steps
+// TODO: refactor this later               ← not a step
+// DEPRECATED: use CreateV2 instead        ← not a step
+func (u *ConsentUsecase) Create(...) {
+```
+
+A single-line description without numbered/bulleted items is NOT a step list — fall back to code-derived rules.
+
+---
+
 ## Extracting Request/Response Structs
 
 After finding a handler, trace the request and response types:

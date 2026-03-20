@@ -103,7 +103,17 @@ For each discovered route, trace from handler → usecase → repository to extr
 1. **Request shape** — handler's request struct (path params, query params, request body)
 2. **Response shape** — handler's response struct (success and error cases), including any response wrapper
 3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
-4. **Business logic** — open and read ALL usecase methods called by the handler. Walk through the entire happy-path flow line by line and write one numbered step per distinct action. Every `if` check, every repo/service call, every side effect (notification, event publish, cache invalidation) must appear as a step. Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps. Include validation rules, conditional branches, and what happens on success.
+4. **Business logic** — open and read ALL usecase methods called by the handler, then extract steps using this priority:
+
+   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge.
+
+   **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and count steps using these concrete rules:
+   - Each function/method call to a repo, service, or external system = 1 step
+   - Each `if`/`switch` that checks a business rule (not mere error propagation) = 1 step
+   - Each side effect (notification, event publish, cache invalidation, audit log) = 1 step
+   - Final `return` of the success result is NOT a separate step
+
+   Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps. Include validation rules, conditional branches, and what happens on success.
 5. **Error responses** — mapped HTTP status codes from error handling
 
 Track which group each endpoint belongs to — this determines its file placement in Step 3.

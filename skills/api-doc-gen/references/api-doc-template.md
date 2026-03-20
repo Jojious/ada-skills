@@ -201,8 +201,10 @@ This is the **single source of truth** for all verification checks — used by S
 - [ ] JSON examples reflect actual response shape (including wrapper if present)
 
 ### Business Logic Completeness (critical — open ALL usecase methods to verify)
-- [ ] Every distinct action in the usecase happy-path has a corresponding numbered step (if checks, repo calls, service calls, side effects)
-- [ ] Step count matches the number of distinct actions in the usecase — re-read the usecase method and count actions vs steps in the doc
+- [ ] **Source check:** determine whether steps came from header comments (Priority 1) or code-derived counting rules (Priority 2)
+- [ ] If Priority 1 (header comments): steps in doc match the comment list verbatim — no steps added, removed, or reworded
+- [ ] If Priority 2 (code-derived): each repo/service/external call = 1 step, each business-rule `if`/`switch` = 1 step, each side effect = 1 step, final `return` is NOT a step
+- [ ] Step count matches the source (comment list count OR code-derived action count)
 - [ ] Conditional branches are documented (e.g., "If X, do Y")
 - [ ] Side effects included (notifications, events, cache, audit logs)
 
