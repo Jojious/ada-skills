@@ -31,10 +31,10 @@ npx skills add https://github.com/Jojious/ada-skills
 
 | Skill | Platform | Description |
 | --- | --- | --- |
-| [gitlab-claude](./skills/gitlab-claude/) | Claude Code | GitLab MR Read/Review/Fix workflows via glab CLI |
-| [gitlab-copilot](./skills/gitlab-copilot/) | Copilot CLI | GitLab MR Read/Review/Fix workflows via glab CLI |
-| [gitlab-kiro](./skills/gitlab-kiro/) | Kiro CLI | GitLab MR Read/Review/Fix workflows via glab CLI |
-| [gitlab-opencode](./skills/gitlab-opencode/) | OpenCode | GitLab MR Read/Review/Fix workflows via glab CLI |
+| [gitlab-claude](./skills/gitlab-claude/) | Claude Code | GitLab MR Create/Read/Review/Fix workflows via glab CLI |
+| [gitlab-copilot](./skills/gitlab-copilot/) | Copilot CLI | GitLab MR Create/Read/Review/Fix workflows via glab CLI |
+| [gitlab-kiro](./skills/gitlab-kiro/) | Kiro CLI | GitLab MR Create/Read/Review/Fix workflows via glab CLI |
+| [gitlab-opencode](./skills/gitlab-opencode/) | OpenCode | GitLab MR Create/Read/Review/Fix workflows via glab CLI |
 
 ## DevOps & Infrastructure
 
