@@ -169,7 +169,7 @@ During review, QA **MUST** check whether the project has existing E2E tests and 
    - Evaluate whether the changes warrant new E2E tests and recommend if so
 4. **If QA is generating E2E tests (not just running existing ones):**
    - Follow the [`e2e-playwright.md`](e2e-playwright.md) guide to generate E2E test code
-   - Bootstrap the `tests/e2e/` project if it does not exist yet
+   - Bootstrap the E2E project at the resolved `{e2e-root}` path if it does not exist yet (see e2e-playwright.md § E2E Path Resolution)
    - After generating, run the tests as in step 2
    - Include both the generated test file paths AND execution results in the output
 
@@ -203,11 +203,11 @@ QA generates two types of test documents using the reference templates in this s
 
 2. Write E2E spec files
    → Read [`e2e-playwright.md`](e2e-playwright.md) for the E2E code generation guide
-   → If `tests/e2e/` folder does not exist in project root, bootstrap it (see e2e-playwright.md § Bootstrapping)
+   → If E2E project does not exist, resolve path and bootstrap it (see e2e-playwright.md § E2E Path Resolution + Bootstrapping)
    → Feature test folder name mirrors `docs/design/{feature}/` name exactly
    → If test case document has a Workflow Chain table: generate `{feature}.precondition.ts` from it
    → Generate `{feature}.e2e.ts` with TC-ID-prefixed `it()` blocks
-   → Run `cd tests/e2e && npm test` to verify all tests pass
+   → Run `cd {e2e-root} && npm test` to verify all tests pass
 
 3. Run E2E tests and generate execution report
    → follows test-execution-report.md template: actual result, status, executed by, defect ref

@@ -14,12 +14,22 @@ This reference tells you **how** to generate E2E test code for API-only testing.
 
 **Prerequisite:** A test case document (following [`test-case-document.md`](test-case-document.md) template) must exist before you write any E2E code. The test case document defines TC-IDs, expected behavior, and Workflow Chains — you translate those into code.
 
+## E2E Path Resolution (CRITICAL)
+
+Do NOT assume a hardcoded E2E path. Resolve the E2E project root using this chain — stop at the first match:
+
+1. **Read the project's `CLAUDE.md` / `AGENTS.md`** — look for e2e path convention, test directory config, or any project-specific test structure definition
+2. **If not found** — ask the Orchestrator to clarify with the user where the E2E project should live
+3. **If user does not specify** — fallback to `tests/e2e/` as default
+
+Store the resolved path and use it consistently throughout bootstrapping, test generation, and test execution. In this document, `{e2e-root}` refers to the resolved path (e.g., `tests/e2e/`, `e2e/`, `test/e2e/`, etc.).
+
 ## E2E Project Structure
 
-The E2E project lives at `tests/e2e/` in the project root as a **standalone project** with its own `package.json`. Feature test folders mirror `docs/design/{feature}/` names exactly.
+The E2E project lives at `{e2e-root}` in the project root as a **standalone project** with its own `package.json`. Feature test folders mirror `docs/design/{feature}/` names exactly.
 
 ```
-tests/e2e/
+{e2e-root}/
 ├── package.json                    ← standalone dependencies
 ├── tsconfig.json                   ← strict mode, ES2020+
 ├── jest.config.ts                  ← Jest configuration
@@ -49,7 +59,7 @@ tests/e2e/
 
 ## Bootstrapping (First-time Setup)
 
-If `tests/e2e/` does not exist in the project root, create the entire skeleton before writing any test code. Run `cd tests/e2e && npm install` after creating all files.
+If `{e2e-root}` does not exist in the project root, create the entire skeleton before writing any test code. Run `cd {e2e-root} && npm install` after creating all files.
 
 ### package.json
 
@@ -227,7 +237,7 @@ import * as path from 'path';
 
 /**
  * Load a JSON fixture file relative to the calling feature's __fixtures__/ folder.
- * @param fixturePath - path relative to tests/e2e/ root (e.g., 'loan-approval/__fixtures__/data.json')
+ * @param fixturePath - path relative to {e2e-root} (e.g., 'loan-approval/__fixtures__/data.json')
  */
 export function loadJson<T = any>(fixturePath: string): T {
   const fullPath = path.resolve(__dirname, '..', fixturePath);
@@ -238,7 +248,7 @@ export function loadJson<T = any>(fixturePath: string): T {
 /**
  * Read a SQL seed file and return its content as a string.
  * The caller is responsible for executing it against the database.
- * @param fixturePath - path relative to tests/e2e/ root (e.g., 'loan-approval/__fixtures__/seed.sql')
+ * @param fixturePath - path relative to {e2e-root} (e.g., 'loan-approval/__fixtures__/seed.sql')
  */
 export function readSqlSeed(fixturePath: string): string {
   const fullPath = path.resolve(__dirname, '..', fixturePath);
@@ -369,13 +379,13 @@ describe('Savings Account', () => {
 
 ```bash
 # Run all E2E tests
-cd tests/e2e && npm test
+cd {e2e-root} && npm test
 
 # Run tests for a specific feature
-cd tests/e2e && npm test -- --testPathPattern=savings-account
+cd {e2e-root} && npm test -- --testPathPattern=savings-account
 
 # With custom API URL
-cd tests/e2e && API_BASE_URL=https://staging.example.com npm test
+cd {e2e-root} && API_BASE_URL=https://staging.example.com npm test
 ```
 
 **Environment variables:**
@@ -393,7 +403,7 @@ Before reporting E2E test results, verify:
 - [ ] Every TC-ID from the test case document has a corresponding `it()` block in the `.e2e.ts` file
 - [ ] Precondition `setup()` covers every step from the Workflow Chain table in the test case document
 - [ ] Precondition `teardown()` cleans up in reverse order
-- [ ] `cd tests/e2e && npm test` runs successfully (or failures are documented in the execution report)
+- [ ] `cd {e2e-root} && npm test` runs successfully (or failures are documented in the execution report)
 - [ ] No hardcoded URLs or tokens — all use environment variables
 - [ ] Feature folder name matches `docs/design/{feature}/` exactly
 - [ ] Test assertions use exact HTTP status codes from the API contract
