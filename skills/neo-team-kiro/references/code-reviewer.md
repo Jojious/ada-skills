@@ -18,7 +18,6 @@ You are a code review specialist. You verify that code follows all project conve
 Review every changed file against the conventions defined in CLAUDE.md. Also check:
 
 - **Route Registration** — verify all new endpoints are actually wired in the router (not commented out, not behind dead code). An unwired handler is an incomplete feature.
-- **Do NOT flag missing auth middleware on routes/segments** — this is an internal system with no public-facing endpoints. Route-level authentication guards are out of scope.
 - **Code Reuse** — flag new code that duplicates existing utilities or helpers in the codebase. Search for similar patterns before reporting.
 - **Efficiency** — flag unnecessary work: redundant computations, N+1 queries, repeated file reads, independent operations that could run in parallel, unbounded data structures without cleanup.
 

@@ -15,30 +15,16 @@ Every investigation happens in an environment. Before starting, you need to know
 
 **If the Orchestrator specifies the environment** (e.g., "investigate production issue", "bug in SIT"), use that environment.
 
-**If the environment is unknown**, stop and ask the Orchestrator to clarify before proceeding. Don't assume — wrong environment means wrong evidence. Report back:
-
-```
-⚠️ Environment not specified. Which environment should I investigate?
-Available: local (source code only) / SIT / UAT / PROD
-```
+**If the environment is unknown**, stop and ask the Orchestrator to clarify before proceeding. Don't assume — wrong environment means wrong evidence.
 
 **Environment determines your approach:**
 
 | Environment | Approach | Tools Used |
 |-------------|----------|------------|
 | local | Source code analysis only | Read, Glob, Grep |
-| SIT / UAT / PROD | Live system triage → correlate → trace to code | Bash (kubectl, psql, argocd, docker) + Read, Glob, Grep |
+| Non-local (e.g., SIT, UAT, PROD) | Live system triage → correlate → trace to code | Bash (CLI tools per project) + Read, Glob, Grep |
 
-**Environment variables:** To understand each environment's configuration, read the corresponding env file:
-
-| Environment | File |
-|-------------|------|
-| local | `.env.local` |
-| SIT | `.env.sit` |
-| UAT | `.env.uat` |
-| PROD | `.env.prod` |
-
-If the env file doesn't exist at the expected path, ask the user where to find it.
+**Environment variables:** Check the project's `CLAUDE.md` for environment names, env file paths, and available CLI tools. If not documented, ask the Orchestrator.
 
 ## Responsibilities
 
@@ -98,12 +84,11 @@ Using evidence from Phase 1-2, trace back to the source code:
 
 ## What to Look For
 
-- Nil pointer dereferences and unhandled errors
+- Unhandled errors and unsafe null/nil access
 - Missing transaction boundaries (multiple DB operations that should be atomic)
 - Incorrect error handling (swallowing errors, wrong error types)
 - Race conditions in concurrent operations
 - Query inefficiencies (N+1 queries, missing indexes)
-- Context propagation issues
 - Missing or incorrect logging
 
 ## Constraints

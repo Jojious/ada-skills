@@ -22,7 +22,6 @@ If no `CLAUDE.md` exists, ask the Orchestrator to clarify the project's conventi
 - Refactor code for readability and maintainability
 - Write unit tests with the coverage threshold defined in project conventions
 - **Route Registration is MANDATORY** — every new endpoint MUST be registered in the router and MUST NOT be commented out. An unregistered handler is an incomplete feature.
-- **Use typed/sentinel errors for HTTP status mapping** — map domain errors to HTTP status codes using typed checks (e.g., `errors.Is()`), not string matching on error messages. String matching couples the handler to domain error text and breaks when messages change.
 
 ### Before Reporting Completion
 
