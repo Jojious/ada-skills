@@ -37,6 +37,7 @@ docs/api/
 
 - **Grouping:** each subdirectory under the handler base directory = one group
 - **File naming:** handler function name converted to kebab-case (e.g., `AcceptConsent` → `accept-consent.md`)
+- **Path params in docs:** always use `{param}` format in documented paths, regardless of framework syntax in code (`:id` → `{id}`, `{id}` stays `{id}`)
 - **Index:** `docs/api/index.md` links to every endpoint file
 
 ## Modes
@@ -100,17 +101,48 @@ If the handler directory has no subdirectories (flat structure), fall back to gr
 For each discovered route, trace from handler → usecase → repository to extract:
 
 1. **Request shape** — handler's request struct (path params, query params, request body)
-2. **Response shape** — handler's response struct (success and error cases)
-3. **Business rules** — validation in usecase layer, error conditions
-4. **Error responses** — mapped HTTP status codes from error handling
+2. **Response shape** — handler's response struct (success and error cases), including any response wrapper
+3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
+4. **Business logic** — open and read ALL usecase methods called by the handler. Walk through the entire happy-path flow line by line and write one numbered step per distinct action. Every `if` check, every repo/service call, every side effect (notification, event publish, cache invalidation) must appear as a step. Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps. Include validation rules, conditional branches, and what happens on success.
+5. **Error responses** — mapped HTTP status codes from error handling
 
 Track which group each endpoint belongs to — this determines its file placement in Step 3.
 
 **Where to find these:**
 - Request/Response structs: `handler/request.go`, `handler/response.go`, or inline in handler files
-- Domain entities: `entity.go` in the domain package
+- Response wrapper: check how handler returns data — may wrap in `Response{Success, Data, Message}` (see `go-scan-patterns.md` § Response Wrapper Detection)
+- Domain entities: `entity.go` in the domain package (handler may return entity directly if no response struct exists)
+- Query params: both struct-based AND inline `c.Query()` calls in handler (see `go-scan-patterns.md` § Query Parameters from Handler Code)
+- Success status code: check the handler's `c.JSON(statusCode, ...)` or `c.Status(code).JSON(...)` — do not assume 200
 - Error mapping: handler's error-to-status-code logic
+- Auth type: determined from middleware on the route group — check for JWT/Bearer middleware, API key middleware, or no auth. Document as `Bearer token`, `API Key`, or `None` in the endpoint header
 - Validation rules: request struct tags (`validate:"required"`, `binding:"required"`), usecase validation
+
+#### Field Completeness — Every Field Matters
+
+The doc must be a 1:1 mirror of the code structs. A missing field or wrong type makes the doc unreliable and defeats its purpose. Follow these rules:
+
+1. **Read the full struct** — open the actual `.go` file containing the struct and read every field. Do not rely on memory or partial scans. Count only serializable fields (exclude `json:"-"` and unexported fields) — if a struct has 20 serializable fields, the doc must have 20 rows.
+2. **Follow embedded/composed structs** — if a struct embeds another (`BaseResponse`, `Pagination`, `Timestamps`), read that parent struct too and include all its fields in the doc table.
+3. **Resolve custom types** — if a field uses a custom type (e.g., `ConsentStatus`, `NullString`, `decimal.Decimal`), trace its definition and document the underlying type + allowed values in the Remark column.
+4. **Pointer and omitempty fields** — `*string` or `json:",omitempty"` means the field is optional and can be `null`. Mark as `O` and show `null` in Example when appropriate.
+5. **Nested objects and arrays** — if a field is a struct or slice-of-struct, create a separate sub-table for that object type. The parent table Remark column should say `See <Name> Object below`.
+6. **Cross-check after writing** — after writing the field table, re-read the source struct and compare line by line. Every serializable field (exclude `json:"-"` and unexported fields) must have a matching row in the table.
+
+Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Field Extraction Completeness for detailed patterns on embedded structs, custom types, and edge cases.
+
+#### Error Response Completeness — Every Error Path Matters
+
+A partial error table gives false confidence. Use a **usecase-first** approach — the usecase layer is the source of truth for business errors. Then supplement with handler-level errors.
+
+1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct error it can return: named sentinel errors (`ErrNotFound`, `ErrDuplicate`), wrapped errors (`fmt.Errorf(...)`), and errors from repository/external calls. Each one becomes a candidate error response row.
+2. **Trace usecase errors to HTTP status** — for each error found in step 1 (across all usecase methods), go back to the handler and find how it maps that error to an HTTP status code (via `errors.Is` switch, error type assertion, or error map). This gives you the Status + Error Message for the doc.
+3. **Handler-level errors** — scan the handler function itself for direct non-2xx returns that happen *before* calling the usecase: bind/parse errors (400), validation errors (422), auth middleware rejections (401/403), path param parsing errors (400).
+4. **Sentinel error discovery** — search for `var Err... = errors.New(...)` in the domain/entity package. Cross-reference with all the usecase methods to confirm which ones this endpoint can actually trigger.
+5. **Default/fallback case** — always include the catch-all error (usually 500 Internal Server Error) that handles unexpected errors.
+6. **Cross-check after writing** — re-read ALL usecase methods AND the handler's error mapping. Count error returns across all usecase methods + direct error returns in the handler → must match the rows in the error table.
+
+Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Error Tracing Patterns for comprehensive patterns on how errors flow through layers.
 
 ### Step 3: Generate, Update, or Validate
 
@@ -149,7 +181,9 @@ Create the `docs/api/` directory structure:
 
 #### Validate Mode
 
-Compare all files in `docs/api/` against discovered routes and produce a report:
+Compare all files in `docs/api/` against discovered routes **at the same depth as Step 2** — open the actual struct files and ALL usecase methods, not just check surface-level presence.
+
+Run **every item** in the [Verification Checklist](references/api-doc-template.md#verification-checklist). Then produce a report:
 
 ```
 ## API Doc Validation Report
@@ -166,9 +200,19 @@ Compare all files in `docs/api/` against discovered routes and produce a report:
 - docs/api/consent/delete-consent.md → no matching route found
 
 ### Field Mismatches (per file)
+Check performed: opened struct source file, counted serializable fields vs doc rows.
 - docs/api/consent/get-consent.md
-  - Response field `revoked_at` exists in code but not in doc
-  - Doc shows `status` as String, code uses custom type `ConsentStatus`
+  - Response: struct has 8 fields, doc has 6 rows — MISSING: `revoked_at`, `revoked_by`
+  - Response: `status` documented as String, code uses `ConsentStatus` (enum: "active", "revoked", "expired")
+  - Request: embedded `BaseRequest` has 2 fields not in doc: `request_id`, `trace_id`
+
+### Error Response Mismatches (per file)
+Check performed: opened ALL usecase methods, counted error returns vs doc rows.
+- docs/api/consent/accept-consent.md
+  - Usecase `Create()` has 5 error returns, doc has 3 error rows — MISSING:
+    - `ErrPurposeExpired` → should be 422
+    - `fmt.Errorf("send notification: %w", err)` → should be 500
+  - Handler bind error (400) not documented
 
 ### Index Integrity
 - TOC link to `consent/revoke-consent.md` → file exists: ✅/❌
@@ -184,6 +228,7 @@ Compare all files in `docs/api/` against discovered routes and produce a report:
 | Missing files | Z |
 | Orphan files | W |
 | Field mismatches | N |
+| Error response mismatches | E |
 | Broken index links | P |
 ```
 
@@ -191,25 +236,11 @@ Compare all files in `docs/api/` against discovered routes and produce a report:
 
 Every time you create or modify files in `docs/api/`, run a full verification pass before reporting completion. This catches drift between the docs you just wrote and the actual code. Skipping this step means silent errors ship.
 
-**4a. Format checks** — run across ALL files in `docs/api/`:
-1. `index.md` endpoint table links resolve to actual files
-2. All field tables use `M`/`O` for Mandatory column
-3. JSON examples are valid (no trailing commas, correct types)
-4. Breadcrumb navigation in each endpoint file uses correct relative paths
+Run **every item** in the [Verification Checklist](references/api-doc-template.md#verification-checklist) at the same depth as Step 2 — re-open the actual struct source files and ALL usecase methods, do not check from memory.
 
-**4b. Re-scan and cross-check (the critical part):**
+**Fix or report:**
 
-Re-read all files in `docs/api/`, then re-scan the codebase routes (same as Step 1) and compare:
-
-1. **File coverage** — every route in code has a corresponding `.md` file, and vice versa
-2. **Index integrity** — every endpoint file is listed in `index.md`, and every index entry points to an existing file
-3. **Field accuracy** — for each endpoint, compare request/response structs in code vs what the doc describes. Flag missing fields, wrong types, or wrong mandatory/optional markers
-4. **Group consistency** — handler directory structure matches `docs/api/` directory structure
-5. **Status code accuracy** — verify documented error codes match the handler's actual error-to-status mapping
-
-**4c. Fix or report:**
-
-- If mismatches are found → fix the doc immediately, then re-run 4b to confirm the fix
+- If mismatches are found → fix the doc immediately, then re-run the checklist to confirm the fix
 - If all checks pass → proceed to output
 - Maximum 2 fix-and-recheck cycles. If issues persist after 2 rounds, report the remaining discrepancies in the output as warnings
 
@@ -243,7 +274,8 @@ After completion, report:
 **Verification:** [✅ Passed — docs match code / ⚠️ Passed with warnings / ❌ Issues remain]
 - File coverage: X endpoints in code, Y files in docs — Match: ✅/❌
 - Index integrity: all links resolve — ✅/❌
-- Field accuracy: [X/Y endpoint files fully match]
+- Field accuracy: [X/Y endpoint files — struct field count matches doc row count]
+- Error response accuracy: [X/Y endpoint files — usecase error count matches doc error rows]
 - Fix cycles used: [0/1/2]
 
 **Warnings:** [any issues found — missing structs, unresolvable types, remaining discrepancies, etc.]

@@ -36,9 +36,9 @@ Use this template for the index file that serves as the entry point for all API 
 | Method | Path | Endpoint | File |
 |--------|------|----------|------|
 | `POST` | `/api/v1/consents` | Accept Consent | [accept-consent](consent/accept-consent.md) |
-| `GET` | `/api/v1/consents/:citizen_id` | Get Consents by Citizen | [get-consents-by-citizen](consent/get-consents-by-citizen.md) |
-| `GET` | `/api/v1/consents/:id` | Get Consent | [get-consent](consent/get-consent.md) |
-| `DELETE` | `/api/v1/consents/:id/revoke` | Revoke Consent | [revoke-consent](consent/revoke-consent.md) |
+| `GET` | `/api/v1/consents/{citizen_id}` | Get Consents by Citizen | [get-consents-by-citizen](consent/get-consents-by-citizen.md) |
+| `GET` | `/api/v1/consents/{id}` | Get Consent | [get-consent](consent/get-consent.md) |
+| `DELETE` | `/api/v1/consents/{id}/revoke` | Revoke Consent | [revoke-consent](consent/revoke-consent.md) |
 
 ### <Group Name> (e.g., Channel)
 
@@ -76,7 +76,7 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 <One sentence describing what this endpoint does.>
 
 - **Method:** `GET` | `POST` | `PUT` | `PATCH` | `DELETE`
-- **Path:** `/api/v1/<resource>/<path-param>`
+- **Path:** `/api/v1/<resource>/{path-param}`
 - **Auth:** `Bearer token` | `API Key` | `None`
 
 ## Path Parameters (if any)
@@ -139,9 +139,14 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 
 ## Business Logic
 
-1. step 1
-2. step 2
-3. step 3
+One step per distinct action in the usecase — read the usecase method and list every action it performs:
+
+1. Validate that the referenced Purpose exists and is active
+2. Check if a consent already exists for this Citizen + Purpose combination
+3. Create a new Consent record with status `active`
+4. Create an audit log entry for the consent creation
+5. Send notification to the data subject via notification service
+6. Return the created consent
 
 ## Error Responses
 
@@ -169,14 +174,47 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 
 ---
 
-## Checklist Before Finalizing
+## Verification Checklist
 
-- [ ] Every endpoint file is linked from `index.md` endpoints table
-- [ ] `index.md` TOC links resolve to existing files (correct relative paths)
+This is the **single source of truth** for all verification checks — used by Step 4 (verify after Generate/Update) and Validate Mode. Do not duplicate these checks elsewhere; reference this checklist instead.
+
+### Coverage & Structure
+- [ ] Every route in code has a corresponding `.md` file, and vice versa (no missing or orphan files)
+- [ ] Every endpoint file is listed in `index.md` endpoints table, and every index entry points to an existing file
+- [ ] Handler directory structure matches `docs/api/` directory structure (group consistency)
 - [ ] Every endpoint file has Method, Path, and at least one example
-- [ ] All field tables use `M`/`O` for Mandatory column
-- [ ] Nested objects each have their own sub-table
-- [ ] Error Responses table covers all possible HTTP status codes
 - [ ] Breadcrumb navigation uses correct relative paths
 - [ ] JSON examples are valid (no trailing commas, correct types)
 - [ ] Version number in `index.md` header is up to date
+
+### Field Completeness (critical — open struct source files to verify)
+- [ ] All field tables use `M`/`O` for Mandatory column
+- [ ] Request body field count matches serializable fields in struct (exclude `json:"-"` and unexported) — no field skipped
+- [ ] Response field count matches serializable fields in struct (exclude `json:"-"` and unexported) — no field skipped
+- [ ] Embedded/composed struct fields are expanded into the parent table (e.g., `BaseResponse` fields included)
+- [ ] Custom types resolved to underlying type with enum values listed in Remark
+- [ ] Pointer fields (`*Type`) and `omitempty` fields marked as `O` with `null` in Example where appropriate
+- [ ] Nested objects (`[]Struct`, `Struct`) each have their own sub-table
+- [ ] Response wrapper documented correctly if handler wraps response in envelope (e.g., `{success, data, message}`)
+- [ ] Query params from inline `c.Query()` handler calls included (not just struct-based)
+- [ ] JSON examples include all mandatory fields and at least one optional field
+- [ ] JSON examples reflect actual response shape (including wrapper if present)
+
+### Business Logic Completeness (critical — open ALL usecase methods to verify)
+- [ ] Every distinct action in the usecase happy-path has a corresponding numbered step (if checks, repo calls, service calls, side effects)
+- [ ] Step count matches the number of distinct actions in the usecase — re-read the usecase method and count actions vs steps in the doc
+- [ ] Conditional branches are documented (e.g., "If X, do Y")
+- [ ] Side effects included (notifications, events, cache, audit logs)
+
+### Response Metadata (critical)
+- [ ] Success status code matches handler's actual return (200/201/204 etc.), not guessed
+- [ ] Auth type matches middleware applied to the route
+
+### Error Response Completeness (critical — open ALL usecase methods to verify)
+- [ ] ALL usecase methods the handler calls have been read — not just one
+- [ ] Every error return across all usecase methods has a matching row in the Error Responses table
+- [ ] Each sentinel error has a matching row with the correct HTTP status
+- [ ] Bind/parse errors included (400)
+- [ ] Validation errors included (400/422)
+- [ ] Default/catch-all error case included (500)
+- [ ] Error messages match the actual strings in the code, not generic placeholders
