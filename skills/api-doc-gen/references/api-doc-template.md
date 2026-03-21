@@ -334,11 +334,12 @@ This is the **single source of truth** for all verification checks — used by S
 - [ ] JSON examples reflect actual response shape (including wrapper if present)
 
 ### Business Logic Completeness (critical — open ALL usecase methods to verify)
-- [ ] Steps derived from code using counting rules (ignore header comments — always derive from code)
-- [ ] Counted as 1 step: repo/service/external call, sentinel-returning `if`/`switch`, state-changing side effect
-- [ ] NOT counted: error propagation (`if err != nil`), stdlib calls, struct construction, logging, metrics, context enrichment, final `return`
-- [ ] Step count matches code-derived action count — re-read usecase and count
-- [ ] Step wording: imperative verb + object, derived from method name or inline comment
+- [ ] **Source check:** determine whether steps came from header comments (Priority 1) or code-derived counting rules (Priority 2)
+- [ ] If Priority 1 (header comments): steps in doc match the `Step N:` lines verbatim — no steps added, removed, or reworded. Sub-steps (4.1, 4.2) are indented sub-items.
+- [ ] If Priority 2 (code-derived): counted as 1 step: repo/service/external call, sentinel-returning `if`/`switch` (even inside loops), state-changing side effect
+- [ ] If Priority 2: repo call + nil sentinel check = 2 separate steps (never merged)
+- [ ] If Priority 2: NOT counted: error propagation, stdlib calls, struct construction, entity mutation without I/O, logging, metrics, context enrichment, early success return, final `return`
+- [ ] Step count matches the source (comment step count OR code-derived action count)
 - [ ] Conditional branches are documented (e.g., "If X, do Y")
 - [ ] Side effects included (audit log, cache invalidate, event publish) — but NOT logging/metrics
 

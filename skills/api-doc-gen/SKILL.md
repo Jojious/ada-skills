@@ -103,27 +103,41 @@ For each discovered route, trace from handler → usecase → repository to extr
 1. **Request shape** — handler's request struct (path params, query params, request body)
 2. **Response shape** — handler's response struct (success and error cases), including any response wrapper
 3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
-4. **Business logic** — open and read ALL usecase methods called by the handler. Walk through the happy-path flow line by line and classify each line:
+4. **Business logic** — open and read ALL usecase methods called by the handler, then extract steps using this priority:
+
+   **Priority 1 — Usecase header comments (preferred):** Read the comment block directly above the `func` signature. Look for the `### Logical` section containing `Step N:` lines. If found, transcribe them verbatim as numbered steps. Sub-steps (`Step 4.1:`, `Step 4.2:`) become indented sub-items. Do not reinterpret, merge, or add steps — copy exactly what the developer wrote.
+
+   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Usecase Header Comment Detection for the exact detection procedure and supported formats.
+
+   **Priority 2 — Code-derived counting rules (fallback):** Only if no step comments exist in the header. Walk through the happy-path flow line by line and classify each line:
 
    **Count as 1 step:**
    - Repository/store method call (`u.repo.Xxx(...)`, `u.store.Xxx(...)`)
    - Other usecase/service method call (`u.otherUsecase.Xxx(...)`, `u.service.Xxx(...)`)
    - External system call (notification send, event publish, message queue, HTTP client)
-   - Business rule `if`/`switch` that returns a **sentinel error** (`ErrXxx`) — the condition check itself is the step
+   - Business rule `if`/`switch` that returns a **typed/sentinel error** (`errs.UseCasef(...)`, `ErrXxx`, `errs.Invalid(...)`, etc.) — the condition check itself is the step. **This applies even inside a `for` loop** — each sentinel-returning `if` in a loop body is still 1 step.
    - Side effect that changes external state: audit log write, cache invalidate/set
+
+   **Clarifications — common ambiguous patterns:**
+   - **Repo call followed by nil check:** A repo call and its subsequent `if result == nil { return sentinel }` are **2 separate steps** — the repo call is a step (I/O), and the nil check is a step (business rule returning sentinel). Never merge them.
+   - **Sentinel inside a `for` loop:** If a `for` loop body contains an `if` that returns a typed error, that `if` is **1 step** — loops do not suppress step counting. The loop itself is not a step; each qualifying action inside it is.
+   - **Entity mutation method without I/O** (e.g., `entity.Revoke()`, `entity.Accept()`): **NOT a step** — it changes in-memory state but has no I/O. The subsequent repo persist call (`repo.Update()`) is the step.
+   - **Early return of success without error** (e.g., `if len(items) == 0 { return empty, nil }`): **NOT a step** — it is a control flow shortcut, not a business rule check that returns a typed error.
 
    **Do NOT count as a step:**
    - Error propagation: `if err != nil { return ..., err }` or `if err != nil { return ..., fmt.Errorf(...) }`
    - Standard library: `time.Now()`, `uuid.New()`, `json.Marshal`, `strconv.Atoi`
    - Struct construction, variable assignment, type conversion
    - Internal utility with no I/O: mapper, converter, formatter
+   - Entity mutation method without I/O: `entity.Revoke()`, `entity.Accept()`, `entity.Decline()`
    - Observability: `log.Info(...)`, `log.Error(...)`, `metrics.Increment(...)`
    - Context enrichment: `ctx = context.WithValue(...)`
+   - Early return of success result (empty result, idempotent shortcut)
    - Final `return` of success result
 
    Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps.
 
-   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Step Classification Examples for concrete code examples. Ignore any header comments in the usecase — always derive steps from the code itself.
+   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Step Classification Examples for concrete code examples.
 5. **Error responses** — mapped HTTP status codes from error handling
 
 Track which group each endpoint belongs to — this determines its file placement in Step 3.
