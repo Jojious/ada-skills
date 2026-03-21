@@ -280,9 +280,19 @@ type CreateUserRequest struct {
 **Tag interpretation:**
 - `json:"name"` → field name in JSON
 - `json:",omitempty"` → optional field
-- `validate:"required"` → mandatory (M)
+- `validate:"required"` or `binding:"required"` → mandatory (M)
 - `validate:"min=X,max=Y"` → range constraint (note in Remark)
 - `validate:"oneof=a b c"` → enum values (note in Remark)
+
+**M/O Classification for Request Fields:**
+
+| Go type + tags | M/O | Reason |
+|----------------|-----|--------|
+| Any type with `binding:"required"` or `validate:"required"` | M | Framework enforces |
+| `*string`, `*int`, `*bool`, etc. (pointer) | O | Can be nil |
+| Any type with `json:",omitempty"` (no required) | O | Explicitly optional |
+| `bool` WITHOUT required tag | O | Zero value `false` is valid default; omitting the field is valid |
+| Non-pointer, non-bool WITHOUT required tag | M | Expected to be present |
 
 **Where to find:** Same package as handler, typically `request.go` or `dto.go`
 
@@ -730,13 +740,27 @@ func (h *Handler) CreateConsent(c *fiber.Ctx) error {
 
 ### Step 4: Error Tracing Boundary (strict)
 
-Do **NOT** trace into repository or external service implementations. Only collect errors that the usecase method **explicitly returns** in its own function body. The usecase layer is the boundary.
+The boundary is **usecase + domain service**. Trace INTO domain services but NOT into repositories or external services.
 
-- Sentinel errors returned by the usecase (e.g., `return nil, ErrNotFound`) → collect as-is
-- Wrapped errors returned by the usecase (e.g., `return nil, fmt.Errorf("create: %w", err)`) → do NOT open the repo to find what `err` is. This is an unhandled error → catch-all 500
-- If the usecase **explicitly checks** a repo error and converts it to a sentinel (e.g., `if errors.Is(err, gorm.ErrRecordNotFound) { return nil, ErrNotFound }`), the sentinel is already visible in the usecase body — collect that sentinel
+**What to trace into (business logic layers):**
+- Domain services called by the usecase (e.g., `scopeValidator.ValidateX(...)`, `service.DoY(...)`) — these contain business rules and return typed errors (not just 500). Open the service method and collect all its typed error returns.
+- Private/helper methods within the usecase package — same reason.
 
-**Why this boundary matters:** tracing into repos produces inconsistent results because different runs may follow different call depths. Keeping the boundary at the usecase ensures the same errors are collected every time.
+**What NOT to trace into (infrastructure layers):**
+- Repository implementations (`u.repo.Create(...)`, `u.repo.FindByID(...)`)
+- External HTTP clients, message queues, notification services
+- Any function in `infrastructure/`, `repository/`, or third-party packages
+
+**Error classification by source:**
+- Typed error constructed in usecase body (e.g., `errs.UseCasef(...)`) → collect as sentinel
+- Typed error constructed in domain service body → trace into service, collect as sentinel
+- `return nil, err` propagating a **domain service** error → trace the service to find its typed errors
+- `return nil, err` propagating a **repo/external** error → catch-all 500
+- `fmt.Errorf("...: %w", err)` or `errs.WithStack(err)` wrapping repo/external → catch-all 500
+
+**How to distinguish domain service from repo:** check the variable name and package. `u.repo.*`, `u.*Repo.*`, `u.store.*` → repository. `u.*Service.*`, `u.*Validator.*`, `service.New*` → domain service. When in doubt, check the import path — `domain/service/` or `domain/` = trace, `infrastructure/` or `repository/` = don't trace.
+
+**Why this boundary matters:** tracing into repos produces inconsistent results because different runs may follow different call depths. Domain services are part of the business logic and return meaningful typed errors that consumers need to know about. Keeping repository as the hard boundary ensures consistent error enumeration.
 
 ### Sentinel Error Discovery
 

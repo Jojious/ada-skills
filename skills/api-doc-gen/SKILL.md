@@ -105,7 +105,7 @@ For each discovered route, trace from handler → usecase → repository to extr
 3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
 4. **Business logic** — open and read ALL usecase methods called by the handler, then extract steps using this priority:
 
-   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge.
+   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge. Do NOT add any explanatory/metadata text before or after the steps (e.g., no "Steps derived from header comments in usecase method." line) — output the numbered list only.
 
    **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and classify each line:
 
@@ -183,6 +183,30 @@ Max 8 words. Factual only.
 - Auth type: determined from middleware on the route group — check for JWT/Bearer middleware, API key middleware, or no auth. Document as `Bearer token`, `API Key`, or `None` in the endpoint header
 - Validation rules: request struct tags (`validate:"required"`, `binding:"required"`), usecase validation
 
+#### M/O Classification Rules
+
+Determine Mandatory (M) or Optional (O) from Go struct definition. This is critical for API correctness — a wrong M/O misleads consumers about what they must send or what they will always receive.
+
+**Request fields:**
+
+| Condition | M/O | Reason |
+|-----------|-----|--------|
+| Has `binding:"required"` or `validate:"required"` | M | Framework rejects request if missing |
+| Pointer type (`*string`, `*int`, `*bool`, etc.) | O | Can be nil; `null` in JSON |
+| Has `json:",omitempty"` (without required) | O | Explicitly optional |
+| `bool` WITHOUT `binding:"required"` | O | Zero value `false` is valid default; sender can omit the field and Go deserializes as `false` — this is NOT a missing value, it's a meaningful default |
+| Non-pointer, non-bool, WITHOUT `binding:"required"` | M | Zero value (`""`, `0`) is sent but typically expected to be present |
+
+**Response fields:**
+
+| Condition | M/O | Reason |
+|-----------|-----|--------|
+| Pointer type (`*time.Time`, `*string`, etc.) with `omitempty` | O | May be absent or `null` in JSON |
+| Pointer type WITHOUT `omitempty` | O | Can be `null` in JSON |
+| Non-pointer type | M | Always present in JSON serialization |
+
+The key insight for `bool`: in Go, `json.Unmarshal` silently assigns `false` when a bool field is absent from input. Unlike `string` or `int` where absence typically indicates a problem, `false` is an intentional, meaningful default for booleans. If the API designer wanted the field to be required, they would have added `binding:"required"`.
+
 #### Field Completeness — Every Field Matters
 
 The doc must be a 1:1 mirror of the code structs. A missing field or wrong type makes the doc unreliable and defeats its purpose. Follow these rules:
@@ -201,7 +225,7 @@ Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Field
 
 A partial error table gives false confidence. Use a **usecase-first** approach — the usecase layer is the source of truth for business errors. Then supplement with handler-level errors.
 
-1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct **sentinel error** it can return (`ErrNotFound`, `ErrDuplicate`, etc.) — these become error response rows. Also note any wrapped errors (`fmt.Errorf(...)`) — these all consolidate into the catch-all 500 row. Do NOT trace into repository/external implementations; the usecase body is the boundary.
+1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct **sentinel error** it can return (`ErrNotFound`, `ErrDuplicate`, etc.) — these become error response rows. Also note any wrapped errors (`fmt.Errorf(...)`) — these all consolidate into the catch-all 500 row. **Tracing boundary = usecase + domain service.** If the usecase calls a domain service (e.g., `scopeValidator.ValidateX(...)`, `service.DoY(...)`), trace into that service and collect its typed errors too — domain services contain business logic that returns non-500 errors. Do NOT trace into repository or external service implementations (DB, HTTP clients, message queues) — those are infrastructure and their errors are catch-all 500.
 2. **Trace usecase errors to HTTP status** — for each error found in step 1 (across all usecase methods), go back to the handler and find how it maps that error to an HTTP status code (via `errors.Is` switch, error type assertion, or error map). This gives you the Status + Error Message for the doc.
 3. **Handler-level errors** — scan the handler function itself for direct non-2xx returns that happen *before* calling the usecase: bind/parse errors (400), validation errors (422), auth middleware rejections (401/403), path param parsing errors (400).
 4. **Sentinel error discovery** — search for `var Err... = errors.New(...)` in the domain/entity package. Cross-reference with all the usecase methods to confirm which ones this endpoint can actually trigger.
@@ -213,7 +237,7 @@ A partial error table gives false confidence. Use a **usecase-first** approach �
 | Rule | Description |
 |------|-------------|
 | **One sentinel = one row** | Every distinct sentinel error variable (`ErrXxx`) = exactly 1 row, even if multiple sentinels share the same HTTP status code. Use the error message from `errors.New("...")` as the Error Message column value. |
-| **Wrapped errors stay at surface** | `fmt.Errorf("...: %w", err)` returned by the usecase → do NOT trace into repo/external to find the inner error. Treat it as an unhandled error that falls to the catch-all. Exception: if the usecase explicitly unwraps and re-returns a new sentinel, collect that sentinel instead. |
+| **Wrapped/propagated errors — trace by layer** | For errors propagated via `return nil, err` from a **domain service** call → trace into the service to find its typed errors (they are business logic, not 500). For errors propagated from **repository/external** calls → do NOT trace; treat as catch-all 500. `fmt.Errorf("...: %w", err)` or `errs.WithStack(err)` wrapping a repo/external error → also catch-all 500. |
 | **One catch-all 500 row** | All wrapped/unhandled errors that have no explicit `errors.Is` case in the handler → consolidate into exactly 1 row: `500 | internal server error`. Never expand these into multiple 500 rows. |
 | **Dedup by error variable** | If the handler calls multiple usecase methods that can return the same sentinel (e.g., `ErrNotFound` from 2 different methods), document it as 1 row only. Dedup key = (sentinel variable name + HTTP status code). |
 | **Handler errors are exhaustive** | Always check for ALL of these — not optional: bind/parse error → 400, validation error → 422, path param parse error → 400. If the handler has the pattern, include the row. Do not skip any. |
@@ -318,6 +342,12 @@ Check performed: opened ALL usecase methods, counted error returns vs doc rows.
 Every time you create or modify files in `docs/api/`, run a full verification pass before reporting completion. This catches drift between the docs you just wrote and the actual code. Skipping this step means silent errors ship.
 
 Run **every item** in the [Verification Checklist](references/api-doc-template.md#verification-checklist) at the same depth as Step 2 — re-open the actual struct source files and ALL usecase methods, do not check from memory.
+
+**M/O verification (critical):** For each field in every table, verify M/O against the struct tag:
+- Re-read the struct and check each field's `binding`/`validate` tags and whether it's a pointer
+- `bool` fields without `binding:"required"` → must be `O`
+- Pointer fields → must be `O`
+- Fields with `binding:"required"` → must be `M`
 
 **Fix or report:**
 

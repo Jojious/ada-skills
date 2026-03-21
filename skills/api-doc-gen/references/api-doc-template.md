@@ -167,13 +167,34 @@ One step per distinct action in the usecase — read the usecase method and list
 
 | Convention  | Meaning                                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------------------------- |
-| Mandatory   | Use `M` for required fields, `O` for optional                                                            |
+| Mandatory   | Use `M` for required fields, `O` for optional. Classify from Go struct tags — see M/O table below        |
 | Type values | `String`, `Number`, `Boolean`, `Array`, `Object`                                                         |
 | Timestamps  | Always ISO 8601 with Asia/Bangkok timezone (+07:00): `"2024-01-01T10:00:00+07:00"`                                                         |
 | UUIDs       | Use `"uuid-v4"` or `"uuid-<noun>"` as example values (e.g., `"uuid-consent-1"`)                          |
 | Nested obj  | Use `Array` or `Object` type + `See <GoTypeName> Object below` in Remark column, then add a separate sub-table |
 | Enum values | List allowed values in Remark (e.g., `"active"`, `"inactive"`, `"revoked"`)                              |
 | Null fields | Show `null` in Example when the field can be null                                                        |
+
+### M/O Classification (from Go struct tags)
+
+**Request fields:**
+
+| Condition | M/O |
+|-----------|-----|
+| Has `binding:"required"` or `validate:"required"` | M |
+| Pointer type (`*string`, `*int`, `*bool`, etc.) | O |
+| Has `json:",omitempty"` without required tag | O |
+| `bool` type WITHOUT `binding:"required"` | O |
+| Non-pointer, non-bool, WITHOUT required tag | M |
+
+**Response fields:**
+
+| Condition | M/O |
+|-----------|-----|
+| Pointer type (with or without `omitempty`) | O |
+| Non-pointer type | M |
+
+`bool` without `binding:"required"` is O because Go's `json.Unmarshal` assigns `false` when the field is absent — the sender can legitimately omit it.
 
 ### Row Ordering (mandatory)
 
@@ -290,6 +311,7 @@ This is the **single source of truth** for all verification checks — used by S
 
 ### Field Completeness (critical — open struct source files to verify)
 - [ ] All field tables use `M`/`O` for Mandatory column
+- [ ] M/O classification correct: re-check each field against struct tags — `binding:"required"` → M, pointer → O, `omitempty` → O, **`bool` without required → O**, non-pointer non-bool without required → M
 - [ ] Request body field count matches serializable fields in struct (exclude `json:"-"` and unexported) — no field skipped
 - [ ] Response field count matches serializable fields in struct (exclude `json:"-"` and unexported) — no field skipped
 - [ ] Embedded/composed struct fields are expanded into the parent table (e.g., `BaseResponse` fields included)
@@ -309,6 +331,7 @@ This is the **single source of truth** for all verification checks — used by S
 
 ### Business Logic Completeness (critical — open ALL usecase methods to verify)
 - [ ] **Source check:** determine whether steps came from header comments (Priority 1) or code-derived counting rules (Priority 2)
+- [ ] No metadata/explanatory text before or after the numbered steps (e.g., no "Steps derived from..." line)
 - [ ] If Priority 1 (header comments): steps in doc match the comment list verbatim — no steps added, removed, or reworded
 - [ ] If Priority 2 (code-derived): repo/service/external call = 1 step, sentinel-returning `if`/`switch` = 1 step, state-changing side effect = 1 step
 - [ ] NOT counted: error propagation (`if err != nil`), stdlib calls, struct construction, logging, metrics, context enrichment, final `return`
