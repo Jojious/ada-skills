@@ -219,6 +219,7 @@ Scan the entire Markdown content for fenced code blocks (` ``` ` pairs). For eac
 |---|---|
 | `**bold**` | `<strong>bold</strong>` |
 | `*italic*` | `<em>italic</em>` |
+| `[[text](url)]` | `<a href="url">text</a>` — **process before normal links** (used in type columns like `array[[Type](#anchor)]`) |
 | `[text](url)` | `<a href="url">text</a>` |
 | `## Heading` | `<h2>Heading</h2>` |
 | `\| col \| col \|` table | `<table><tbody><tr><td>...</td></tr></tbody></table>` |
@@ -226,6 +227,41 @@ Scan the entire Markdown content for fenced code blocks (` ``` ` pairs). For eac
 | `- item` / `* item` unordered list | `<ul><li>item</li></ul>` |
 | `1. item` ordered list | `<ol><li>item</li></ol>` |
 | `` `inline code` `` | `<code>inline code</code>` |
+
+**Nested list handling (critical):**
+
+When an ordered list item contains indented sub-items (e.g., `- ` bullets indented under a `1. ` item), the sub-items become a `<ul>` **inside** that `<li>`, and the `<li>` is then closed. Subsequent numbered items (`5. `, `6. `, etc.) must continue as siblings in the **same parent `<ol>`** — do NOT nest them inside the previous item's sub-list.
+
+Example input:
+```
+4. Validate collection point
+   - Check active status
+   - Check purpose mapping
+5. Create consent record
+6. Return response
+```
+
+Correct output:
+```html
+<ol>
+  <li>Validate collection point
+    <ul><li>Check active status</li><li>Check purpose mapping</li></ul>
+  </li>
+  <li>Create consent record</li>
+  <li>Return response</li>
+</ol>
+```
+
+Wrong output (items 5-6 nested inside item 4's sub-list):
+```html
+<ol>
+  <li>Validate collection point
+    <ul><li>Check active status</li><li>Check purpose mapping</li>
+      <li>Create consent record</li><li>Return response</li>
+    </ul>
+  </li>
+</ol>
+```
 
 ## Step 7: Sync Pages (Create + Update) via REST API
 
