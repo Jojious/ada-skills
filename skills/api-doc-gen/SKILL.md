@@ -103,11 +103,7 @@ For each discovered route, trace from handler → usecase → repository to extr
 1. **Request shape** — handler's request struct (path params, query params, request body)
 2. **Response shape** — handler's response struct (success and error cases), including any response wrapper
 3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
-4. **Business logic** — open and read ALL usecase methods called by the handler, then extract steps using this priority:
-
-   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge. Do NOT add any explanatory/metadata text before or after the steps (e.g., no "Steps derived from header comments in usecase method." line) — output the numbered list only. For sub-steps (e.g., `Step 4.1`, `Step 4.2`), format as indented numbered list without bullet prefix: `   4.1. <text>` (3-space indent + number + period). Never use `- 4.1.` format.
-
-   **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and classify each line:
+4. **Business logic** — open and read ALL usecase methods called by the handler. Walk through the happy-path flow line by line and classify each line:
 
    **Count as 1 step:**
    - Repository/store method call (`u.repo.Xxx(...)`, `u.store.Xxx(...)`)
@@ -127,7 +123,7 @@ For each discovered route, trace from handler → usecase → repository to extr
 
    Do not summarize multiple actions into one step — if the usecase does 8 things, the doc must have 8 steps.
 
-   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Step Classification Examples for concrete code examples.
+   Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Step Classification Examples for concrete code examples. Ignore any header comments in the usecase — always derive steps from the code itself.
 5. **Error responses** — mapped HTTP status codes from error handling
 
 Track which group each endpoint belongs to — this determines its file placement in Step 3.
@@ -162,7 +158,7 @@ Free-text fields must follow these formulas to produce consistent output across 
 
 Max 8 words. Factual only.
 
-**Business logic step wording** (Priority 2 only):
+**Business logic step wording:**
 - Start with imperative verb derived from the method/function name
 - Pattern: `<Verb> <object>[ qualifier]`
 - If inline comment exists on/above the code line → use comment text verbatim
