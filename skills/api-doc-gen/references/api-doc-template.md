@@ -153,13 +153,15 @@ One step per distinct action in the usecase — read the usecase method and list
 
 ## Error Responses
 
-| Status | Error Message         | Description                    |
-| ------ | --------------------- | ------------------------------ |
-| 400    | invalid request       | Request body validation failed |
-| 404    | record not found      | Resource does not exist        |
-| 422    | <specific message>    | Business rule violation        |
-| 500    | internal server error | Server-side failure            |
+| Status | Error Message | Description |
+| ------ | ------------- | ----------- |
+| 400 | invalid request | Request body validation failed |
+| 404 | record not found | Resource does not exist |
+| 422 | \<specific message\> | Business rule violation |
+| 500 | internal server error | Server-side failure |
 ````
+
+**Table formatting rule:** Use minimal column padding — single space between `|` and content (e.g., `| 400 | message | desc |`). Do not pad with extra spaces to align columns. This ensures byte-identical tables across runs.
 
 ---
 
@@ -232,8 +234,10 @@ Follow Go struct field order (top to bottom):
 
 | Field context | Fixed value |
 |---|---|
-| Thai person name (`nameTH`, `firstNameTH`, etc.) | `"สมชาย ใจดี"` |
-| English person name (`nameEN`, `firstNameEN`, etc.) | `"Somchai Jaidee"` |
+| Thai person name (`firstNameTH`, `lastNameTH`, person-context `nameTH`) | `"สมชาย ใจดี"` |
+| English person name (`firstNameEN`, `lastNameEN`, person-context `nameEN`) | `"Somchai Jaidee"` |
+| Thai entity name (`name_th` on non-person entity like channel, segment, purpose) | `"ชื่อ<entity>ภาษาไทย"` e.g. channel → `"ช่องทางตัวอย่าง"` |
+| English entity name (`name_en` on non-person entity) | `"Example <Entity>"` e.g. channel → `"Example Channel"` |
 | Generic name (`name`, `channelName`, `purposeName`) | `"<entity> name"` e.g. `"Consent Form"` |
 | Phone (`mobileNo`, `phoneNumber`, `tel`) | `"0812345678"` |
 | Email (`email`, `contactEmail`) | `"user@example.com"` |
@@ -344,9 +348,10 @@ This is the **single source of truth** for all verification checks — used by S
 - [ ] Success status code matches handler's actual return (200/201/204 etc.), not guessed
 - [ ] Auth type matches middleware applied to the route
 
-### Error Response Completeness (critical — open ALL usecase methods to verify)
+### Error Response Completeness (critical — open ALL usecase AND domain service methods to verify)
 - [ ] ALL usecase methods the handler calls have been read — not just one
-- [ ] Every sentinel error return across all usecase methods has a matching row in the Error Responses table
+- [ ] ALL domain service methods called by the usecase have been opened and read (variable names like `*Validator*`, `*Service*`; import paths with `domain/service/`)
+- [ ] Every typed error return across all usecase methods AND domain service methods has a matching row in the Error Responses table
 - [ ] Each sentinel error (`ErrXxx`) = exactly 1 row, even if multiple sentinels share the same HTTP status code — never consolidate
 - [ ] Wrapped `fmt.Errorf` errors from usecase → NOT traced into repo — covered by single catch-all 500 row
 - [ ] Same sentinel from multiple usecase methods → deduplicated to 1 row (dedup by error variable name + status code)

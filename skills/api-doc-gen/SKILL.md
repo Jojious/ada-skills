@@ -105,7 +105,7 @@ For each discovered route, trace from handler → usecase → repository to extr
 3. **Success status code** — check the handler's success return to determine the actual HTTP status (200/201/204/etc.), do not guess
 4. **Business logic** — open and read ALL usecase methods called by the handler, then extract steps using this priority:
 
-   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge. Do NOT add any explanatory/metadata text before or after the steps (e.g., no "Steps derived from header comments in usecase method." line) — output the numbered list only.
+   **Priority 1 — Header comments:** Check if the usecase method has step-by-step comments in its doc comment or header block (e.g., `// Steps:`, `// 1. ...`, `// - ...`). If found, use those steps directly — the developer's documented intent is the source of truth. Transcribe them as-is into numbered steps; do not reinterpret or merge. Do NOT add any explanatory/metadata text before or after the steps (e.g., no "Steps derived from header comments in usecase method." line) — output the numbered list only. For sub-steps (e.g., `Step 4.1`, `Step 4.2`), format as indented numbered list without bullet prefix: `   4.1. <text>` (3-space indent + number + period). Never use `- 4.1.` format.
 
    **Priority 2 — Code-derived counting rules:** If no header comments with steps exist, walk through the happy-path flow line by line and classify each line:
 
@@ -225,18 +225,19 @@ Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Field
 
 A partial error table gives false confidence. Use a **usecase-first** approach — the usecase layer is the source of truth for business errors. Then supplement with handler-level errors.
 
-1. **Open and read ALL usecase methods** — this is the most important step. Read the handler to find every usecase/service call it makes — some handlers call multiple usecase methods (e.g., `h.purposeUsecase.GetByID(...)` then `h.consentUsecase.Create(...)`). For each usecase method called, open the file and read the entire function body. List every distinct **sentinel error** it can return (`ErrNotFound`, `ErrDuplicate`, etc.) — these become error response rows. Also note any wrapped errors (`fmt.Errorf(...)`) — these all consolidate into the catch-all 500 row. **Tracing boundary = usecase + domain service.** If the usecase calls a domain service (e.g., `scopeValidator.ValidateX(...)`, `service.DoY(...)`), trace into that service and collect its typed errors too — domain services contain business logic that returns non-500 errors. Do NOT trace into repository or external service implementations (DB, HTTP clients, message queues) — those are infrastructure and their errors are catch-all 500.
-2. **Trace usecase errors to HTTP status** — for each error found in step 1 (across all usecase methods), go back to the handler and find how it maps that error to an HTTP status code (via `errors.Is` switch, error type assertion, or error map). This gives you the Status + Error Message for the doc.
-3. **Handler-level errors** — scan the handler function itself for direct non-2xx returns that happen *before* calling the usecase: bind/parse errors (400), validation errors (422), auth middleware rejections (401/403), path param parsing errors (400).
-4. **Sentinel error discovery** — search for `var Err... = errors.New(...)` in the domain/entity package. Cross-reference with all the usecase methods to confirm which ones this endpoint can actually trigger.
-5. **Default/fallback case** — always include the catch-all error (usually 500 Internal Server Error) that handles unexpected errors.
-6. **Cross-check after writing** — re-read ALL usecase methods AND the handler's error mapping. Count error returns across all usecase methods + direct error returns in the handler → must match the rows in the error table.
+1. **Open and read ALL usecase methods** — Read the handler to find every usecase call it makes. For each usecase method, open the file and read the entire function body. List every distinct typed error it constructs (e.g., `errs.UseCasef(...)`, `errs.Invalid(...)`, `errs.NotFoundf(...)`) — these become error response rows. Wrapped/propagated errors from repo calls (`return nil, err`, `errs.WithStack(err)`) consolidate into the catch-all 500.
+2. **Open and read ALL domain service methods called by the usecase** — this step is mandatory, not optional. For each domain service call in the usecase (variable names like `*Validator*`, `*Service*`, `service.New*`; import paths containing `domain/service/`), open the service file and read the called method. List every typed error the service constructs (`errs.Domainf(...)`, `errs.Newf(...)`, etc.). A single service method may have multiple error returns with different messages — count each distinct `return errs.*` as a separate error. Do NOT skip this step — domain services contain business logic errors that map to 4xx, not 500.
+3. **Trace errors to HTTP status** — for each error found in steps 1-2, go back to the handler and find how it maps that error to an HTTP status code (via `errors.Is` switch, error type assertion, or error map). This gives you the Status + Error Message for the doc.
+4. **Handler-level errors** — scan the handler function itself for direct non-2xx returns that happen *before* calling the usecase: bind/parse errors (400), validation errors (422), auth middleware rejections (401/403), path param parsing errors (400).
+5. **Sentinel error discovery** — search for `var Err... = errors.New(...)` in the domain/entity package. Cross-reference with all the usecase methods to confirm which ones this endpoint can actually trigger.
+6. **Default/fallback case** — always include the catch-all error (usually 500 Internal Server Error) that handles unexpected errors.
+7. **Cross-check after writing** — re-read ALL usecase methods AND domain service methods AND the handler's error mapping. Count typed error returns across all of them + direct error returns in the handler → must match the rows in the error table.
 
 **Deterministic Error Enumeration Rules** — follow these rules exactly to ensure consistent output across runs:
 
 | Rule | Description |
 |------|-------------|
-| **One sentinel = one row** | Every distinct sentinel error variable (`ErrXxx`) = exactly 1 row, even if multiple sentinels share the same HTTP status code. Use the error message from `errors.New("...")` as the Error Message column value. |
+| **One sentinel = one row** | Every distinct typed error return = exactly 1 row, even if multiple errors share the same HTTP status code. **Error Message column must use the exact format string from the code** — copy the first argument of `errors.New("...")`, `errs.UseCasef("...")`, `errs.Domainf("...")`, etc. Replace `%s`, `%d`, `%.1f` with `{placeholder}` using the variable name (e.g., `errs.UseCasef("purpose with code '%s' not found", p.PurposeCode)` → `purpose with code '{code}' not found`). Never use `'...'` or generic placeholders — always derive from the actual format string. |
 | **Wrapped/propagated errors — trace by layer** | For errors propagated via `return nil, err` from a **domain service** call → trace into the service to find its typed errors (they are business logic, not 500). For errors propagated from **repository/external** calls → do NOT trace; treat as catch-all 500. `fmt.Errorf("...: %w", err)` or `errs.WithStack(err)` wrapping a repo/external error → also catch-all 500. |
 | **One catch-all 500 row** | All wrapped/unhandled errors that have no explicit `errors.Is` case in the handler → consolidate into exactly 1 row: `500 | internal server error`. Never expand these into multiple 500 rows. |
 | **Dedup by error variable** | If the handler calls multiple usecase methods that can return the same sentinel (e.g., `ErrNotFound` from 2 different methods), document it as 1 row only. Dedup key = (sentinel variable name + HTTP status code). |
@@ -244,8 +245,9 @@ A partial error table gives false confidence. Use a **usecase-first** approach �
 
 **Row ordering** — list error rows in this fixed order:
 1. Handler-level errors (400 bind, 400 param parse, 422 validation) — in status code ascending order
-2. Usecase sentinel errors — in the order they appear in the handler's `errors.Is` switch (top to bottom)
-3. Catch-all 500 — always last row
+2. Usecase typed errors — in the order they appear in the usecase code (top to bottom, line by line). If the handler has an `errors.Is` switch, use the switch order instead.
+3. Domain service typed errors — in the order they appear in the service code (top to bottom). Place them immediately after the usecase error that triggers the service call.
+4. Catch-all 500 — always last row
 
 Read [`references/go-scan-patterns.md`](references/go-scan-patterns.md) § Error Tracing Patterns for comprehensive patterns on how errors flow through layers.
 
