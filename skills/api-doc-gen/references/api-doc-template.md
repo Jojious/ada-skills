@@ -125,10 +125,10 @@ Each file contains exactly ONE endpoint. Do not include document headers or TOC 
 
 | Field Name   | Description            | Type   | Mandatory | Example                  | Remark               |
 | ------------ | ---------------------- | ------ | --------- | ------------------------ | -------------------- |
-| `id`         | UUID of created record | String | M         | `"uuid-v4"`              |                      |
+| `id`         | Unique identifier of the record | String | M         | `"uuid-v4"`              |                      |
 | `status`     | Current status         | String | M         | `"active"`               | "active", "inactive" |
-| `created_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
-| `updated_at` | ISO 8601 timestamp     | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
+| `created_at` | Timestamp when created | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
+| `updated_at` | Timestamp when updated | String | M         | `"2024-01-01T10:00:00+07:00"` |                      |
 
 ## Response Example
 
@@ -188,14 +188,54 @@ Follow Go struct field order (top to bottom):
 |------|-----------|---------------|
 | UUID | Fixed placeholder | `"uuid-v4"` |
 | String (enum) | First enum value from const block | `"active"` |
-| String (name/label) | Kebab-case from field context | `"consent-name"` |
-| String (other) | Short realistic value from field name | `"example-value"` |
+| String (name/label) | Fixed realistic value (see lookup table below) | `"สมชาย ใจดี"` |
+| String (other) | Fixed realistic value from field context | `"0812345678"` |
 | Number (integer, no default) | Smallest typical positive value | `1` |
 | Number (with known default) | Use the default value | `20` |
 | Boolean | Always `true` | `true` |
 | Timestamp | Fixed template timestamp | `"2024-01-01T10:00:00+07:00"` |
 | Array (in example JSON) | Exactly 1 item | `[{...}]` |
 | Null/optional | `null` when field is primarily "absent" | `null` |
+
+**String subtype classification** — use the field description pattern (#1-#9) to determine which String convention applies:
+
+| Field description rule | String subtype | Example |
+|---|---|---|
+| #1 `id` PK, #2 `*_id` FK | UUID | `"uuid-v4"` |
+| #3 `*_id` non-FK | String (other) — realistic value | `"1234567890123"` |
+| #5 `status`, any enum type | String (enum) | `"active"` |
+| #6 `name` + suffix, #7 `name` | String (name/label) — realistic fixed | `"สมชาย ใจดี"`, `"Consent Form"` |
+| #9 Other | String (other) — realistic fixed | `"0812345678"` |
+
+**Fixed realistic value lookup** — use these deterministic values for common field contexts. Match by field name/suffix (case-insensitive). If no match, derive a short realistic value from the field's Go struct comment or domain context:
+
+| Field context | Fixed value |
+|---|---|
+| Thai person name (`nameTH`, `firstNameTH`, etc.) | `"สมชาย ใจดี"` |
+| English person name (`nameEN`, `firstNameEN`, etc.) | `"Somchai Jaidee"` |
+| Generic name (`name`, `channelName`, `purposeName`) | `"<entity> name"` e.g. `"Consent Form"` |
+| Phone (`mobileNo`, `phoneNumber`, `tel`) | `"0812345678"` |
+| Email (`email`, `contactEmail`) | `"user@example.com"` |
+| URL (`url`, `callbackUrl`, `webhook`) | `"https://example.com/callback"` |
+| Address | `"123 Example St"` |
+| Description (`description`, `desc`, `remark`) | `"Example description"` |
+| Code/reference (`code`, `refCode`, `transactionId`) | `"CODE001"` |
+| Thai citizen ID (`citizenId`, `citizen_id`) | `"1234567890123"` |
+
+**Validation-aware examples** — after choosing an example value from the conventions above, cross-check it against the field's `validate` struct tag. The example MUST satisfy all validation rules:
+
+| Validate tag | Constraint | Bad example | Correct example |
+|---|---|---|---|
+| `alpha` | Letters only | `"name01"` | `"SomchaiJaidee"` |
+| `numeric` | Digits only | `"abc123"` | `"1234567890123"` |
+| `email` | Email format | `"user"` | `"user@example.com"` |
+| `url` | URL format | `"homepage"` | `"https://example.com"` |
+| `len=N` | Exact length | `"12345"` (len=13) | `"1234567890123"` |
+| `min=X,max=Y` (string) | Length range | `"a"` (min=3) | `"abc"` |
+| `min=X,max=Y` (number) | Value range | `0` (min=1) | `1` |
+| `oneof=a b c` | Enum values | `"d"` | `"a"` |
+
+If the convention-derived example violates a tag, adjust the value to comply while staying as close to the convention as possible.
 
 ### Remark Column Rules
 
@@ -217,15 +257,21 @@ Use Go type name as-is + " Object:" suffix in bold:
 
 ### Field Description Patterns
 
-| Field pattern | Description formula | Example |
-|--------------|-------------------|---------|
-| `id` (PK) | `Unique identifier of the <entity>` | `Unique identifier of the consent` |
-| `*_id` (FK) | `Reference to <entity>` | `Reference to purpose` |
-| `*_at` (timestamp) | `Timestamp when <past-tense-action>` | `Timestamp when created` |
-| `status` | `Current status` | `Current status` |
-| `name` | `Name of the <entity>` | `Name of the channel` |
-| Boolean | `Whether <condition>` | `Whether consent is active` |
-| Other | Noun phrase from field name, max 8 words | `Total number of records` |
+Apply the FIRST matching rule (top wins). Do NOT inject domain/entity qualifiers beyond what the formula specifies.
+
+| # | Pattern | Formula | Result |
+|---|---------|---------|--------|
+| 1 | `id` (struct's own PK) | `Unique identifier of the <entity>` | `Unique identifier of the consent` |
+| 2 | `*_id` FK (references another entity's PK) | `Reference to <entity>` | `Reference to purpose` |
+| 3 | `*_id` NOT a FK (natural/business identifier) | Split into words, keep `ID` uppercase | `citizen_id` → `Citizen ID` |
+| 4 | `*_at` (timestamp) | `Timestamp when <past-tense action>` | `Timestamp when created` |
+| 5 | `status` (exact) | `Current status` | `Current status` |
+| 6 | `name` + suffix (e.g., `nameTH`, `nameEN`) | `Name in <suffix expansion>` | `nameTH` → `Name in Thai` |
+| 7 | `name` (exact) | `Name of the <entity>` | `Name of the channel` |
+| 8 | Boolean | `Whether <condition from field name>` | `Whether consent is active` |
+| 9 | Other | Mechanically split camelCase/snake_case → words → noun phrase. Known abbreviations: `No`→number, `TH`→Thai, `EN`→English. Unknown abbreviations: use Go struct field comment if available; if none, keep as-is in uppercase. Do NOT add words absent from field name or struct comment. | `mobileNo` → `Mobile number`, `cif` (no comment) → `CIF` |
+
+Max 8 words. Factual only.
 
 ---
 
@@ -255,7 +301,8 @@ This is the **single source of truth** for all verification checks — used by S
 - [ ] Inline query params: `O` by default, `M` only if handler explicitly returns error when param is empty
 - [ ] Row ordering follows Go struct field order — embedded fields first, then own fields
 - [ ] Field descriptions follow formula: ID→"Unique identifier of...", FK→"Reference to...", timestamp→"Timestamp when...", etc.
-- [ ] Example values follow conventions: UUID→`"uuid-v4"`, enum→first value, timestamp→`"2024-01-01T10:00:00+07:00"`, boolean→`true`
+- [ ] Example values follow conventions: UUID→`"uuid-v4"`, enum→first value, timestamp→`"2024-01-01T10:00:00+07:00"`, boolean→`true`, name/label→realistic fixed from lookup table
+- [ ] Example values satisfy field's `validate` struct tag (e.g., `alpha` tag → no digits, `len=13` → exactly 13 chars)
 - [ ] Remark column: enum values listed, defaults noted, constraints noted, empty when no special condition
 - [ ] JSON examples include all mandatory fields and at least one optional field
 - [ ] JSON examples reflect actual response shape (including wrapper if present)

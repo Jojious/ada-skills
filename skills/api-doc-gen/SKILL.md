@@ -146,9 +146,21 @@ Free-text fields must follow these formulas to produce consistent output across 
 - PascalCase → space-separated: `AcceptConsent` → `Accept Consent`
 - No articles, no extra words. Exact PascalCase split only.
 
-**Field description column**:
-- ID field → `Unique identifier of the <entity>` | FK `*_id` → `Reference to <entity>` | Timestamp `*_at` → `Timestamp when <past-tense-action>` | `status` → `Current status` | `name` → `Name of the <entity>` | Boolean → `Whether <condition>` | Other → noun phrase from field name
-- Max 8 words. Factual only.
+**Field description column** — apply the FIRST matching rule (top wins). Do NOT inject domain/entity qualifiers beyond what the formula specifies:
+
+| # | Pattern | Formula | Result |
+|---|---------|---------|--------|
+| 1 | `id` (struct's own PK) | `Unique identifier of the <entity>` | `Unique identifier of the consent` |
+| 2 | `*_id` that is a FK (references another entity's PK) | `Reference to <entity>` | `Reference to purpose` |
+| 3 | `*_id` NOT a FK (natural/business identifier) | Split into words, keep `ID` uppercase | `citizen_id` → `Citizen ID` |
+| 4 | `*_at` (timestamp) | `Timestamp when <past-tense action>` | `Timestamp when created` |
+| 5 | `status` (exact match) | `Current status` | `Current status` |
+| 6 | `name` + suffix (`nameTH`, `nameEN`, etc.) | `Name in <suffix expansion>` | `nameTH` → `Name in Thai` |
+| 7 | `name` (exact match) | `Name of the <entity>` | `Name of the channel` |
+| 8 | Boolean type | `Whether <condition from field name>` | `Whether consent is active` |
+| 9 | Other | Mechanically split camelCase/snake_case → words → noun phrase. Known abbreviations: `No`→number, `TH`→Thai, `EN`→English. Unknown abbreviations: use Go struct field comment if available; if none, keep as-is in uppercase. Do NOT add words absent from field name or struct comment. | `mobileNo` → `Mobile number`, `cif` (no comment) → `CIF` |
+
+Max 8 words. Factual only.
 
 **Business logic step wording** (Priority 2 only):
 - Start with imperative verb derived from the method/function name
