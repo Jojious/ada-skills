@@ -16,6 +16,7 @@ npx skills add https://github.com/Jojious/ada-skills
 | [brainstorm](./skills/brainstorm/) | Structured discovery & prompt improvement |
 | [commit](./skills/commit/) | Smart git commit workflow with branch protection & conventional commits |
 | [confluence-api-doc](./skills/confluence-api-doc/) | Sync API documentation from Markdown to Confluence pages via acli + REST API |
+| [explain-step](./skills/explain-step/) | Deterministic business-level step explanation from code |
 | [improve](./skills/improve/) | Iterative improvement until measurable criteria are met |
 
 ## Team Orchestration (multi-platform)
@@ -44,7 +45,7 @@ npx skills add https://github.com/Jojious/ada-skills
 
 ---
 
-**Skills:** 14 total
+**Skills:** 15 total
 **Usage:** See individual skill SKILL.md for details
 **Create:** Run `/skill-creator` first, see [CLAUDE.md](./CLAUDE.md)
 **Spec:** https://agentskills.io/specification
