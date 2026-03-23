@@ -54,6 +54,88 @@ AC-[NNN]: [scenario name]
 
 Every AC must be **specific enough that QA can write a test case without asking follow-up questions**. If an AC mentions an error, specify the expected error code and message — not just "returns an error." If an AC involves validation, state exactly what values are valid and invalid.
 
+## Determinism Rules
+
+These rules ensure the AC document is structurally consistent every time, regardless of when or how many times it is generated from the same requirements.
+
+### Feature Scope Rule
+
+- **One business workflow = one feature.** When a requirement describes a single end-to-end process (e.g., "approval workflow," "verification flow," "order processing"), write it as ONE feature with ONE user story. Sub-operations within the same workflow (create, approve, reject, cancel, delegate, escalate) are scenarios within that feature — NOT separate features.
+- **Only split into multiple features** when the requirements describe genuinely independent business capabilities with different actors AND different business values that could be developed and deployed separately.
+- **Audit logging = exactly 1 AC** for the entire document, placed in the Cross-cutting group. This single AC covers all actions (create, approve, reject, cancel, etc.) across the entire workflow. Never create separate audit ACs per sub-operation.
+- **Notification = exactly 1 AC** for the entire document (if applicable), placed in the Cross-cutting group. This single AC covers all notification triggers. Never create separate notification ACs per sub-operation.
+
+### AC Granularity Rule
+
+- **1 scenario = 1 AC.** Each AC tests exactly one distinct scenario. For happy paths: if the flow involves multiple distinct user actions (e.g., "submit citizen_id → receive OTP" and "submit OTP → become verified"), write each action as a separate AC — never combine multiple user actions into a single AC.
+- **Cross-cutting concerns (audit logging, notifications) = 1 combined AC** that covers all outcomes (success + failure). Never split audit into separate ACs per outcome type.
+- **Input validation = 1 AC per field** (e.g., invalid citizen_id = AC, invalid phone_number = AC). Missing required fields = 1 separate AC covering all required fields together.
+- **State transition vs ongoing state = 2 separate ACs.** When a scenario involves both a trigger event (e.g., "3rd failed OTP attempt triggers a 30-minute lock") and ongoing behavior during that state (e.g., "any request during lock period is rejected"), always write these as 2 separate ACs — one for the trigger event and one for requests during the locked/blocked state. **Group assignment:** The trigger AC belongs to **Domain Logic** (because the originating action is a domain operation like OTP failure). The ongoing-state AC belongs to **State Guards** (because it guards against actions during a specific state). **Ordering within State Guards:** ongoing locked/blocked state ACs come first, then "already completed/duplicate prevention" ACs come last.
+
+### Happy Path Enumeration Rule
+
+Each happy path AC must be testable with **one set of inputs and one expected outcome**. Use this decision process:
+
+1. **List every action verb** explicitly described in the requirement (create, approve, reject, cancel, delegate, etc.)
+2. **For each action verb, determine how many distinct outcome states it can produce:**
+   - If the action always produces the **same outcome** regardless of input/conditions → **1 AC**
+   - If the action produces **different outcomes** depending on conditions described in the requirement (e.g., "amount ≤ 50K → 1 approver assigned" vs "amount > 50K → 2 approvers assigned") → **1 AC per distinct outcome**
+3. **Do NOT create happy path ACs for implied behaviors** that are not explicitly described as a user action in the requirement. Only the actions the requirement explicitly names get happy path ACs.
+
+### Explicit-Only Error Rule
+
+Only create error/validation/guard ACs for rules **EXPLICITLY stated** in the requirement. Do not infer additional error scenarios that are not mentioned.
+
+- If the requirement says "employee cannot approve their own request" → 1 domain logic AC
+- If the requirement says "delegate to same role only" → 1 domain logic AC for invalid role
+- Do NOT add error scenarios for rules that are not written in the requirement (e.g., do not add "non-assigned user cannot approve" unless the requirement explicitly states this)
+- **1 field = 1 validation AC regardless of sub-rules.** "password must be 8-64 chars with uppercase+lowercase+number" = 1 AC for invalid password. Do NOT split into separate ACs for length, complexity, format — they all produce the same error response for the same field.
+- **Field format/range specification = implicit validation rule.** When the requirement defines valid values for a field (e.g., "approval_type (LEAVE, EXPENSE, PURCHASE)" or "reason 1-500 chars"), this ALWAYS implies a validation AC for that field. You do not need an explicit "reject invalid X" statement — the format spec itself is the validation rule. Create 1 validation AC per field that has a defined format/range, plus 1 AC for missing required fields.
+
+### Scenario Ordering Rule
+
+AC-IDs MUST follow this fixed group order. Within each group, order from most common to least common scenario:
+
+1. **Happy paths** — successful end-to-end flows
+2. **Input validation errors** — format, missing fields, type mismatch
+3. **External service errors** — third-party API rejection, timeout, unavailable
+4. **Domain logic errors** — incorrect input within valid format (wrong OTP, expired token)
+5. **State guard errors** — locked, already completed, duplicate prevention
+6. **Cross-cutting concerns** — audit logging, notifications
+
+### Priority Decision Matrix
+
+| Priority | Criteria | Examples |
+|----------|----------|----------|
+| **P0 (Critical)** | Blocks the core flow, causes data corruption, or has security impact | Happy paths, input validation, external service errors, state guards |
+| **P1 (High)** | Important but does not block the core flow; operational/compliance concern | Audit logging, rate limiting, informational error messages |
+| **P2 (Medium)** | Nice-to-have; cosmetic or optimization | Response message wording, optional fields handling |
+
+Apply this matrix consistently. Do not assign all ACs the same priority — differentiate based on the criteria above.
+
+### HTTP Status Code Guideline
+
+Use these standard mappings. Do not invent alternatives:
+
+| Scenario | HTTP Status | When to use |
+|----------|-------------|-------------|
+| Input validation failed (format, missing fields) | **400** | Request body is malformed or missing required fields |
+| Authentication/authorization failed | **401** | Caller is not authenticated |
+| Forbidden | **403** | Caller is authenticated but not authorized |
+| Resource not found | **404** | Requested resource does not exist |
+| Business rule conflict | **409** | Action conflicts with current state (e.g., already verified) |
+| Business rule rejection (semantic) | **422** | Input is well-formed but fails business validation (e.g., DOPA rejects citizen_id) |
+| Rate limit / lock exceeded | **429** | Too many attempts, temporarily locked |
+| External service timeout | **504** | Upstream service did not respond in time |
+| External service error (non-timeout) | **502** | Upstream service returned unexpected error |
+
+### BR Ordering Rule
+
+- **1 AC = 1 BR.** Each AC references exactly one Business Rule. Do not split a single AC's logic into multiple BRs, and do not create BRs that are not referenced by any AC.
+- Number Business Rules (BR-001, BR-002, ...) in the order they first appear in the AC list. BR-001 corresponds to the Business Rule of AC-001, BR-002 to AC-002, and so on. Never reorder BRs independently of the AC sequence.
+
+---
+
 ## AC Document Generation (CRITICAL)
 
 When generating acceptance criteria, you produce a **document file** — not just inline output. This document becomes QA's primary input for test case design, so its quality directly determines test coverage.
