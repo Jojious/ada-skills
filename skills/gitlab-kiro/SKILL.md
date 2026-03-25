@@ -1,11 +1,12 @@
 ---
 name: gitlab-kiro
 description: >
-  Interact with GitLab via the glab CLI. Supports six MR workflows — Create (สร้าง MR),
-  Read (summarize), Review (full code/security/QA review), Fix (review + implement),
-  CI Fix (fix pipeline failures), and Feedback (address review comments).
+  Interact with GitLab via the glab CLI. Supports seven MR workflows — Create (สร้าง MR),
+  Update (อัพเดท description), Read (summarize), Review (full code/security/QA review),
+  Fix (review + implement), CI Fix (fix pipeline failures), and Feedback (address review comments).
   Trigger whenever the user provides a GitLab MR URL or says anything like
   "สร้าง MR", "create MR", "open MR", "เปิด MR",
+  "อัพเดท MR", "update MR", "update description", "แก้ description", "อัพเดท description",
   "อ่าน MR", "ดู MR", "check MR", "review MR", "ช่วย review MR นี้",
   "ตรวจ MR", "แก้ตาม MR", "fix MR", "fix CI", "fix pipeline", "แก้ pipeline",
   "แก้ตาม comment", "แก้ตาม feedback", "address feedback", or just pastes a GitLab MR URL.
@@ -24,7 +25,7 @@ metadata:
 
 # GitLab Skill (Kiro CLI)
 
-Use the `glab` CLI to interact with GitLab. Supports six MR workflows (Create → Read → Review → Fix → CI Fix → Feedback) plus general glab operations.
+Use the `glab` CLI to interact with GitLab. Supports seven MR workflows (Create → Update → Read → Review → Fix → CI Fix → Feedback) plus general glab operations.
 
 ## URL Parsing
 
@@ -37,11 +38,12 @@ These two values power most glab commands: `glab mr <cmd> <mr_id> --repo <repo_r
 
 ## Intent Detection
 
-Determine the user's intent before selecting a workflow. There are six distinct workflows — **Create** creates a new MR from the current branch, **Read** is the lightest (just summarize), **Review** runs full specialist agents, **Fix** reviews then implements, **CI Fix** targets pipeline failures, and **Feedback** addresses reviewer comments. Default to Read when the user provides a MR URL with no strong signal indicating they want more.
+Determine the user's intent before selecting a workflow. There are seven distinct workflows — **Create** creates a new MR from the current branch, **Update** updates an existing MR's description, **Read** is the lightest (just summarize), **Review** runs full specialist agents, **Fix** reviews then implements, **CI Fix** targets pipeline failures, and **Feedback** addresses reviewer comments. Default to Read when the user provides a MR URL with no strong signal indicating they want more.
 
 | Signal in User Request | Workflow |
 |------------------------|----------|
-| "สร้าง MR", "create MR", "open MR", "เปิด MR", "สร้าง merge request" | **MR Create** — create a new MR from the current branch with team defaults |
+| "สร้าง MR", "create MR", "open MR", "เปิด MR", "สร้าง merge request" | **MR Create** — create a new MR from the current branch with comprehensive description |
+| "อัพเดท MR", "update MR", "update description", "แก้ description", "อัพเดท description" | **MR Update** — update MR description to reflect latest changes |
 | "อ่าน", "ดู", "check", "สรุป", "summary", bare URL with no action verb | **MR Read** — fetch MR info + diff, then summarize. No specialist agents. |
 | "review", "ตรวจ", "ช่วย review", "review ให้หน่อย" | **MR Review** — full code/security/QA review via 3 parallel specialist agents, post findings as comment |
 | "แก้", "fix", "แก้ตาม", "แก้ issue", "implement", "ทำตาม" | **MR Fix** — review first, then ask user to invoke /neo-team-kiro to implement fixes |
@@ -50,11 +52,12 @@ Determine the user's intent before selecting a workflow. There are six distinct 
 
 **Decision rule:**
 1. If the user's message asks to create/open a new MR (no existing MR URL) → **MR Create**
-2. If the user's message mentions CI/pipeline failure → **MR CI Fix**
-3. If the user's message mentions feedback/comments to address → **MR Feedback**
-4. If the user's message contains a fix/แก้ keyword (not CI/feedback-specific) → **MR Fix**
-5. If the user's message explicitly says "review" or "ตรวจ" → **MR Review**
-6. Everything else (bare URL, "อ่าน", "ดู", "check", "สรุป", or ambiguous) → **MR Read** (lightest option, no side effects)
+2. If the user's message asks to update MR description or mentions "อัพเดท MR" → **MR Update**
+3. If the user's message mentions CI/pipeline failure → **MR CI Fix**
+4. If the user's message mentions feedback/comments to address → **MR Feedback**
+5. If the user's message contains a fix/แก้ keyword (not CI/feedback-specific) → **MR Fix**
+6. If the user's message explicitly says "review" or "ตรวจ" → **MR Review**
+7. Everything else (bare URL, "อ่าน", "ดู", "check", "สรุป", or ambiguous) → **MR Read** (lightest option, no side effects)
 
 ---
 
@@ -77,8 +80,9 @@ Create a new MR from the current branch. No MR URL is needed — this workflow d
 ```
 1. Verify current branch and uncommitted changes
 2. Push branch to remote if needed
-3. Create MR with team defaults
-4. Report MR URL to user
+3. Analyze changes & generate comprehensive description
+4. Create MR with generated description
+5. Report MR URL to user
 ```
 
 ### Step 1: Verify Branch
@@ -98,26 +102,54 @@ git push -u origin <current_branch>
 
 If the branch is already pushed and up to date, skip this step.
 
-### Step 3: Create MR
+### Step 3: Analyze Changes & Generate Description
+
+Before creating the MR, analyze all changes on the branch to write a comprehensive description. This is the key step — the description must fully capture what was done so reviewers understand the MR without reading every line of diff.
 
 ```bash
-glab mr create --fill --remove-source-branch --squash-before-merge
+# Detect target branch
+git remote show origin | grep 'HEAD branch'
+
+# All commits since diverging from target
+git log <target_branch>..HEAD --format="%h %s"
+
+# File change summary
+git diff <target_branch>...HEAD --stat
+
+# Full diff for detailed analysis
+git diff <target_branch>...HEAD
 ```
 
-- `--fill` auto-fills title and description from commit messages
+From the commits and diff, generate a structured MR description:
+
+```
+## Summary
+<1-2 sentences: overall purpose of this MR — what problem it solves or what feature it adds>
+
+## Changes
+<grouped by area — e.g., Features, Refactoring, Bug Fixes, Config, Tests, Docs>
+- <concise description of each change>
+
+## Files Changed
+<key files with what changed in each — not every file, focus on the important ones>
+```
+
+The description must accurately reflect what the commits and diff show. Read the actual code changes — do not just paraphrase commit messages. If commits are messy or unclear, the description should still be clear and well-organized based on what the diff reveals.
+
+### Step 4: Create MR
+
+```bash
+glab mr create --remove-source-branch --squash-before-merge \
+  --title "<title>" --description "<generated_description>"
+```
+
+- Generate the title from the branch name or commit messages (concise, under 70 chars)
+- Use the description generated in Step 3
 - `--remove-source-branch` deletes source branch after merge (team default)
 - `--squash-before-merge` squash commits when MR is accepted (team default)
+- If the user provides a title, description, or other options (assignee, reviewer, target branch), use theirs instead of generating
 
-If the user provides additional options (e.g., title, description, assignee, reviewer, target branch), append them:
-
-```bash
-glab mr create --fill --remove-source-branch --squash-before-merge \
-  --title "<title>" --description "<desc>" \
-  --assignee "<user>" --reviewer "<user>" \
-  --target-branch "<branch>"
-```
-
-### Step 4: Report
+### Step 5: Report
 
 After creation, show the user the MR URL and key details:
 
@@ -128,6 +160,85 @@ After creation, show the user the MR URL and key details:
 - URL: <mr_url>
 - Delete source branch: ✅
 - Squash commits: ✅
+```
+
+---
+
+## MR Update Workflow
+
+Update an existing MR's description to reflect the latest changes. Use when additional commits have been pushed after the MR was created, or when the user wants a better description.
+
+```
+1. Identify MR (from URL or current branch)
+2. Fetch current MR info
+3. Analyze all changes on the branch
+4. Generate updated description
+5. Update MR and report
+```
+
+### Step 1: Identify MR
+
+If the user provides a MR URL, parse it. Otherwise, find the MR for the current branch:
+
+```bash
+glab mr list --source-branch $(git branch --show-current) --state opened
+```
+
+### Step 2: Fetch Current MR Info
+
+```bash
+glab mr view <mr_id> --repo <repo_ref> --output json
+```
+
+Extract the current description and target branch.
+
+### Step 3: Analyze All Changes
+
+Analyze the full set of changes on the branch — not just the new commits, but everything since diverging from the target branch:
+
+```bash
+# All commits on the branch
+git log <target_branch>..HEAD --format="%h %s"
+
+# File change summary
+git diff <target_branch>...HEAD --stat
+
+# Full diff
+git diff <target_branch>...HEAD
+```
+
+Compare with the existing MR description to understand what's new or changed since the description was last written.
+
+### Step 4: Generate Updated Description
+
+Write a new description covering ALL changes (original + new), using the same structure as MR Create Step 3:
+
+```
+## Summary
+<updated overall summary reflecting the full scope>
+
+## Changes
+<complete grouped list of all changes>
+
+## Files Changed
+<updated file list>
+```
+
+Do NOT just append new changes to the old description — rewrite the entire description to be coherent and comprehensive. The description should read as if it was written fresh for the current state of the branch.
+
+### Step 5: Update MR and Report
+
+```bash
+glab mr update <mr_id> --repo <repo_ref> --description "<updated_description>"
+```
+
+Report:
+
+```
+✅ อัพเดท MR description สำเร็จ
+- MR: !<mr_id> — <title>
+- สิ่งที่เพิ่มเติม: <brief summary of new changes detected since last description>
+- URL: <mr_url>
 ```
 
 ---
@@ -592,6 +703,7 @@ Use these directly via `execute_bash` when the user asks for something other tha
 | Check pipeline status | `glab ci status --repo <repo_ref>` |
 | List pipelines | `glab ci list --repo <repo_ref>` |
 | Retry a job | `glab ci retry <job_id> --repo <repo_ref>` |
+| Update MR description | `glab mr update <mr_id> --repo <repo_ref> --description "<text>"` |
 | Add a note/comment | `glab mr note <mr_id> --repo <repo_ref> -m "<text>"` |
 
 ### MR Creation Defaults
