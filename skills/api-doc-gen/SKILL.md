@@ -205,7 +205,7 @@ Determine Mandatory (M) or Optional (O) from Go struct definition. This is criti
 | Pointer type (`*string`, `*int`, `*bool`, etc.) | O | Can be nil; `null` in JSON |
 | Has `json:",omitempty"` (without required) | O | Explicitly optional |
 | `bool` WITHOUT `binding:"required"` | O | Zero value `false` is valid default; sender can omit the field and Go deserializes as `false` — this is NOT a missing value, it's a meaningful default |
-| Non-pointer, non-bool, WITHOUT `binding:"required"` | M | Zero value (`""`, `0`) is sent but typically expected to be present |
+| Non-pointer, non-bool, WITHOUT `binding:"required"` | O | Zero value (`""`, `0`) is used as default; gin does not enforce presence without `binding:"required"` |
 
 **Response fields:**
 
