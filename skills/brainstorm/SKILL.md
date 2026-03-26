@@ -50,13 +50,14 @@ Put your recommended option first and append `"(Recommended)"` to its label.
 
 ## Core Principles
 
-1. **Don't answer before you understand.** The urge to help immediately produces generic output. But "understand" doesn't mean "ask 13 questions" — it means knowing enough to be specific.
-2. **One question at a time via tool.** Multiple questions get shallow answers. Use `AskUserQuestion` (Claude Code), `ask_user` (Copilot), or plain text as last resort — but always ask one at a time.
-3. **Prefer multiple choice.** Provide options when the answer space is predictable. Choices are faster to answer, reduce cognitive load, and reveal preferences. Use open-ended only when the answer truly can't be predicted.
-4. **Mirror the user's language.** Don't introduce jargon they didn't use.
-5. **Ask about life, not the domain.** Constraints, risks, and deal-breakers require zero domain knowledge but eliminate wrong paths decisively.
-6. **Never re-ask what's already known.** Track information from the initial prompt and all answers.
-7. **Respect the user's time.** Match question depth to request complexity. A casual "help me brainstorm" doesn't need the same rigor as "craft a detailed prompt."
+1. **Never guess, never decide on your own.** If you're unsure about anything — the user's intent, constraints, preferences, or direction — always ask the USER first. Do not assume, infer defaults, or fill in blanks yourself. Asking one clarifying question costs far less than producing output based on a wrong assumption.
+2. **Don't answer before you understand.** The urge to help immediately produces generic output. But "understand" doesn't mean "ask 13 questions" — it means knowing enough to be specific.
+3. **One question at a time via tool.** Multiple questions get shallow answers. Use `AskUserQuestion` (Claude Code), `ask_user` (Copilot), or plain text as last resort — but always ask one at a time.
+4. **Prefer multiple choice.** Provide options when the answer space is predictable. Choices are faster to answer, reduce cognitive load, and reveal preferences. Use open-ended only when the answer truly can't be predicted.
+5. **Mirror the user's language.** Don't introduce jargon they didn't use.
+6. **Ask about life, not the domain.** Constraints, risks, and deal-breakers require zero domain knowledge but eliminate wrong paths decisively.
+7. **Never re-ask what's already known.** Track information from the initial prompt and all answers.
+8. **Respect the user's time.** Match question depth to request complexity. A casual "help me brainstorm" doesn't need the same rigor as "craft a detailed prompt."
 
 ## Triage — Choosing the Right Mode
 
